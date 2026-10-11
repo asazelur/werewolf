@@ -1,0 +1,23 @@
+{
+  "name": "werewolf",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:e2e:full": "node scripts/e2e-full-night-vote.js",
+    "test:e2e:lobby": "node scripts/e2e-five-ngrok.js",
+    "test:9p": "node scripts/test-9p.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.3"
+  }
+}

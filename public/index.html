@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <title>🐺 Web 狼人殺 - 專業語音版</title>
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <style>
+    body { font-family: "Microsoft JhengHei", sans-serif; padding: 20px; background-color: #1a1a2e; color: #fff; }
+    .container { max-width: 600px; margin: auto; background: #16213e; padding: 25px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); border: 1px solid #0f3460; }
+    h1 { text-align: center; color: #e94560; text-shadow: 0 0 10px rgba(233, 69, 96, 0.5); }
+    
+    .room-controls { background: #0f3460; padding: 15px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #533483; }
+    input, select { padding: 12px; margin: 8px 0; width: 100%; box-sizing: border-box; border: 1px solid #533483; border-radius: 5px; background: #1a1a2e; color: #fff; }
+    
+    button { width: 100%; padding: 12px; cursor: pointer; border: none; border-radius: 5px; font-weight: bold; transition: 0.3s; margin-top: 5px; }
+    .btn-create { background: #2ecc71; color: white; }
+    .btn-join { background: #3498db; color: white; }
+    .btn-start { background: #e67e22; color: white; display: none; margin-top: 20px; }
+    .btn-leave { background: #34495e; color: white; display: none; margin-bottom: 10px; }
+    button:hover { filter: brightness(1.2); }
+
+    #info { background: #533483; color: white; padding: 10px; border-radius: 5px; text-align: center; margin: 15px 0; font-size: 1.1em; transition: 0.5s; }
+    #timerDisplay { font-size: 2.5em; text-align: center; color: #e94560; font-weight: bold; margin: 10px 0; min-height: 1.2em; }
+    #systemMsg { color: #f1c40f; font-weight: bold; text-align: center; min-height: 24px; margin-bottom: 10px; font-size: 1.1em; }
+    
+    #myStatus { 
+      margin-top: 10px; padding: 15px; border: 2px dashed #2ecc71; 
+      border-radius: 10px; background: rgba(46, 204, 113, 0.1); display: none; text-align: center;
+    }
+    #roleName { font-size: 1.5em; font-weight: bold; color: #2ecc71; }
+
+    ul { list-style: none; padding: 0; }
+    li { 
+      background: #0f3460; border: 1px solid #16213e; margin-bottom: 8px; 
+      padding: 12px 15px; border-radius: 8px; display: flex; 
+      justify-content: space-between; align-items: center;
+    }
+    .dead { opacity: 0.5; background: #1a1a2e !important; text-decoration: line-through; }
+    .speaking-dot {
+      width: 10px; height: 10px; border-radius: 50%; background: #2ecc71;
+      box-shadow: 0 0 8px #2ecc71, 0 0 14px rgba(46, 204, 113, 0.6);
+      flex-shrink: 0; vertical-align: middle;
+    }
+    .player-name-row { display: flex; align-items: center; gap: 8px; }
+    .action-group { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
+    .action-btn { width: auto; padding: 6px 14px; font-size: 0.9em; margin: 0; color: white; }
+    
+    .btn-kill { background: #e74c3c; }
+    .btn-check { background: #9b59b6; }
+    .btn-vote { background: #f39c12; }
+    .btn-save { background: #27ae60; }
+    .btn-poison { background: #34495e; }
+    .btn-hunter { background: #000; color: gold; border: 1px solid gold; box-shadow: 0 0 5px gold; }
+    .btn-knight-charge { background: linear-gradient(135deg, #5d4e75, #8e7cc3); color: #fff; border: 1px solid #b8a9d9; }
+    
+    #voteDetailArea { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 10px; }
+    .vote-tag { background: #e94560; color: white; padding: 4px 10px; border-radius: 5px; font-size: 0.8em; border: 1px solid #f1c40f; }
+
+    #hostConfigPanel {
+      display: none; background: #0f3460; border: 1px solid #533483; border-radius: 10px;
+      padding: 14px; margin-bottom: 16px; font-size: 0.95em;
+    }
+    #hostConfigPanel h4 { margin: 0 0 10px 0; color: #e94560; font-size: 1em; }
+    #hostConfigPanel .row { margin: 8px 0; }
+    #hostConfigPanel label { display: block; color: #bdc3c7; margin-bottom: 4px; font-size: 0.85em; }
+    .btn-inline { width: auto; padding: 8px 14px; margin-top: 6px; margin-right: 6px; }
+    #roleChipList { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; min-height: 28px; }
+    .role-chip {
+      background: #533483; padding: 4px 10px; border-radius: 6px; font-size: 0.85em; cursor: pointer; border: 1px solid #e94560;
+    }
+    .role-chip:hover { filter: brightness(1.15); }
+    #waitingConfigMsg { display: none; text-align: center; color: #bdc3c7; margin-bottom: 12px; font-size: 0.95em; }
+    #startBtn:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
+    #speechBanner {
+      display: none; margin: 12px 0; padding: 12px 14px; background: #1a1a2e;
+      border: 1px solid #e94560; border-radius: 10px; text-align: center; color: #f1c40f;
+    }
+    .btn-speech { width: auto; padding: 10px 18px; margin: 6px 6px 0 0; background: #e94560; color: #fff; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>🐺 Web 狼人殺 <span style="font-size: 0.5em; vertical-align: middle;">🎙️語音版</span></h1>
+
+  <div class="room-controls" id="setupArea">
+    <input id="userName" placeholder="輸入你的名字" />
+    <select id="playerLimit">
+      <option value="5">5 人測試板</option>
+      <option value="9" selected>9 人板 (狼王 預女獵 3民)</option>
+      <option value="10">10 人板</option>
+      <option value="12_standard">12 人標準板</option>
+      <option value="12_knight">12 人騎士板</option>
+      <option value="custom">自訂（房長選角，人數上限 99）</option>
+    </select>
+    <button class="btn-create" onclick="create()">建立房間並開啟麥克風</button>
+    <br><br>
+    <input id="roomNumber" placeholder="房號 (4位字母)" />
+    <button class="btn-join" onclick="join()">加入房間並開啟麥克風</button>
+  </div>
+
+  <div id="systemMsg"></div>
+  <div id="speechBanner"></div>
+  <h2 id="info">狀態：等待中...</h2>
+  <div id="timerDisplay"></div>
+  
+  <div id="voteCounter" style="display:none; text-align:center; color:#f1c40f; margin-bottom:10px;">
+    已投票：<span id="votedNum">0</span> / <span id="totalNum">0</span>
+    <div id="voteDetailArea"></div> 
+  </div>
+
+  <div id="myStatus">
+    <div>你的身分是</div>
+    <div id="roleName">?</div>
+  </div>
+
+  <button id="leaveBtn" class="btn-leave" onclick="leaveRoom()">🚪 退出房間</button>
+  <button id="startBtn" class="btn-start" onclick="startGame()">開始遊戲</button>
+
+  <div id="waitingConfigMsg"></div>
+
+  <div id="hostConfigPanel">
+    <h4>房長：角色與夜晚節奏（其他玩家看不到角色清單）</h4>
+    <div class="row">
+      <label>載入範本（會覆寫下方角色清單）</label>
+      <select id="loadPresetSelect">
+        <option value="5">5 人測試</option>
+        <option value="9">9 人</option>
+        <option value="10">10 人</option>
+        <option value="12_standard">12 人標準</option>
+        <option value="12_knight">12 人騎士</option>
+      </select>
+      <button type="button" class="btn-inline" style="background:#3498db;color:#fff" onclick="hostLoadPreset()">套用範本</button>
+    </div>
+    <div class="row">
+      <label>夜晚節奏（對應 boardFlow）</label>
+      <select id="nightFlowSelect">
+        <option value="default">預設 12→10→10 秒</option>
+        <option value="5">5 人快節奏</option>
+        <option value="9">9 人（同預設）</option>
+        <option value="10">10 人</option>
+        <option value="12_standard">12 標準長一點</option>
+        <option value="12_knight">12 騎士板節奏</option>
+      </select>
+      <button type="button" class="btn-inline" style="background:#9b59b6;color:#fff" onclick="hostApplyNightFlow()">套用節奏</button>
+    </div>
+    <div class="row">
+      <span style="color:#f1c40f">已選角色：<strong id="rolePickCount">0</strong> / 房內 <strong id="playerCountDisplay">0</strong> 人（須相等才能開始）</span>
+    </div>
+    <div class="row">
+      <select id="addRoleSelect" style="width:calc(100% - 100px);display:inline-block;vertical-align:middle;">
+        <option value="wolf">狼人</option>
+        <option value="wolfking">狼王</option>
+        <option value="seer">預言家</option>
+        <option value="witch">女巫</option>
+        <option value="hunter">獵人</option>
+        <option value="villager">村民</option>
+        <option value="idiot">白痴</option>
+        <option value="knight">騎士</option>
+      </select>
+      <button type="button" class="btn-inline" style="background:#2ecc71;color:#fff;width:auto" onclick="hostAddRole()">加入</button>
+    </div>
+    <div id="roleChipList"></div>
+    <button type="button" class="btn-inline" style="background:#c0392b;color:#fff;margin-top:10px" onclick="hostClearRoles()">清空角色</button>
+  </div>
+
+  <h3>玩家列表：</h3>
+  <ul id="players"></ul>
+  <div id="audio-container"></div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const socket = io();
+  let currentRoom = "", myRole = "", myStream, witchKnowledgeId = null, canShoot = false, inPK = [];
+  let isSkillProcessing = false;
+  let lastRoomState = null;
+  const speakingPeers = new Set();
+  let voteRevealInterval = null;
+  let micCtx = null, micAnalyser = null, micSource = null, micRaf = null;
+  let micMonitorRunning = false, lastSpeakingSent = false;
+  const peer = new Peer(); 
+  const audioContainer = document.getElementById("audio-container");
+
+  const ROLE_LABELS = {
+    wolf: "狼人", wolfking: "狼王", seer: "預言家", witch: "女巫",
+    hunter: "獵人", villager: "村民", idiot: "白痴", knight: "騎士",
+  };
+
+  socket.on("error", (msg) => {
+    alert(typeof msg === "string" ? msg : (msg && msg.message) || "發生錯誤");
+  });
+
+  function renderHostRoleChips(room) {
+    const list = room.customRoles || [];
+    const el = document.getElementById("roleChipList");
+    el.innerHTML = "";
+    list.forEach((r, i) => {
+      const span = document.createElement("span");
+      span.className = "role-chip";
+      span.textContent = (ROLE_LABELS[r] || r) + " ×";
+      span.title = "點擊移除";
+      span.onclick = () => hostRemoveRole(i);
+      el.appendChild(span);
+    });
+    document.getElementById("rolePickCount").textContent = list.length;
+    document.getElementById("playerCountDisplay").textContent = room.players.length;
+    const nfs = document.getElementById("nightFlowSelect");
+    if (nfs && room.nightFlowKey) nfs.value = room.nightFlowKey;
+  }
+
+  function hostLoadPreset() {
+    if (!currentRoom) return;
+    const id = document.getElementById("loadPresetSelect").value;
+    socket.emit("setGameConfig", { roomId: currentRoom, loadPresetId: id });
+  }
+
+  function hostApplyNightFlow() {
+    if (!currentRoom) return;
+    const key = document.getElementById("nightFlowSelect").value;
+    socket.emit("setGameConfig", { roomId: currentRoom, nightFlowKey: key });
+  }
+
+  function hostAddRole() {
+    if (!currentRoom || !lastRoomState || lastRoomState.host !== socket.id) return;
+    const role = document.getElementById("addRoleSelect").value;
+    const arr = [...(lastRoomState.customRoles || [])];
+    arr.push(role);
+    socket.emit("setGameConfig", { roomId: currentRoom, customRoles: arr });
+  }
+
+  function hostRemoveRole(index) {
+    if (!currentRoom || !lastRoomState || lastRoomState.host !== socket.id) return;
+    const arr = [...(lastRoomState.customRoles || [])];
+    arr.splice(index, 1);
+    socket.emit("setGameConfig", { roomId: currentRoom, customRoles: arr });
+  }
+
+  function hostClearRoles() {
+    if (!currentRoom) return;
+    socket.emit("setGameConfig", { roomId: currentRoom, clearRoles: true });
+  }
+
+  async function initMic() {
+    try { myStream = await navigator.mediaDevices.getUserMedia({ audio: true }); } 
+    catch (err) { alert("無法取得麥克風權限"); }
+  }
+
+  function stopMicMonitor() {
+    micMonitorRunning = false;
+    if (micRaf) cancelAnimationFrame(micRaf);
+    micRaf = null;
+    try {
+      if (micSource) micSource.disconnect();
+    } catch (e) {}
+    micSource = null;
+    micAnalyser = null;
+    try {
+      if (micCtx && micCtx.state !== "closed") micCtx.close();
+    } catch (e) {}
+    micCtx = null;
+    if (currentRoom && lastSpeakingSent) {
+      socket.emit("speakingState", { roomId: currentRoom, active: false });
+    }
+    lastSpeakingSent = false;
+  }
+
+  function startMicMonitor() {
+    if (!myStream || !currentRoom) return;
+    stopMicMonitor();
+    micMonitorRunning = true;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    micCtx = new AC();
+    micAnalyser = micCtx.createAnalyser();
+    micAnalyser.fftSize = 512;
+    micAnalyser.smoothingTimeConstant = 0.45;
+    micSource = micCtx.createMediaStreamSource(myStream);
+    micSource.connect(micAnalyser);
+
+    const data = new Uint8Array(micAnalyser.fftSize);
+    let loudFrames = 0, quietFrames = 0;
+    const TH_ON = 0.028, TH_OFF = 0.018, NEED_LOUD = 2, NEED_QUIET = 12;
+
+    function loop() {
+      if (!micMonitorRunning) return;
+      micRaf = requestAnimationFrame(loop);
+      if (micCtx.state === "suspended") micCtx.resume();
+      micAnalyser.getByteTimeDomainData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) {
+        const v = (data[i] - 128) / 128;
+        sum += v * v;
+      }
+      const rms = Math.sqrt(sum / data.length);
+      if (rms >= TH_ON) {
+        loudFrames++;
+        quietFrames = 0;
+        if (loudFrames >= NEED_LOUD && !lastSpeakingSent) {
+          lastSpeakingSent = true;
+          socket.emit("speakingState", { roomId: currentRoom, active: true });
+        }
+      } else if (rms <= TH_OFF) {
+        quietFrames++;
+        loudFrames = 0;
+        if (quietFrames >= NEED_QUIET && lastSpeakingSent) {
+          lastSpeakingSent = false;
+          socket.emit("speakingState", { roomId: currentRoom, active: false });
+        }
+      }
+    }
+    loop();
+  }
+
+  function refreshSpeakingIndicators() {
+    document.querySelectorAll("#players li[data-sid]").forEach((li) => {
+      const sid = li.getAttribute("data-sid");
+      const dot = li.querySelector(".speaking-dot");
+      if (!dot) return;
+      const dead = li.classList.contains("dead");
+      dot.style.display = !dead && speakingPeers.has(sid) ? "inline-block" : "none";
+    });
+  }
+
+  peer.on('call', (call) => {
+    call.answer(myStream);
+    call.on('stream', (remoteStream) => {
+      const audio = document.createElement('audio');
+      audio.srcObject = remoteStream; audio.autoplay = true;
+      audioContainer.append(audio);
+    });
+  });
+
+  async function create() {
+    if (!document.getElementById("userName").value) return alert("請輸入名字");
+    await initMic();
+    socket.emit("createRoom", { name: document.getElementById("userName").value, boardType: document.getElementById("playerLimit").value, peerId: peer.id });
+  }
+
+  async function join() {
+    const rid = document.getElementById("roomNumber").value.toUpperCase();
+    if (!document.getElementById("userName").value || !rid) return alert("資訊不全");
+    await initMic();
+    currentRoom = rid;
+    socket.emit("joinRoom", { roomId: rid, name: document.getElementById("userName").value, peerId: peer.id });
+    startMicMonitor();
+  }
+
+  function startGame() { if (currentRoom) socket.emit("startGame", currentRoom); }
+
+  function leaveRoom() {
+    if (!currentRoom) return;
+    if (confirm("確定要離開房間嗎？")) {
+      stopMicMonitor();
+      speakingPeers.clear();
+      socket.emit("leaveRoom", currentRoom);
+      currentRoom = "";
+      document.getElementById("setupArea").style.display = "block";
+      document.getElementById("startBtn").style.display = "none";
+      document.getElementById("leaveBtn").style.display = "none";
+      document.getElementById("myStatus").style.display = "none";
+      document.getElementById("players").innerHTML = "";
+      document.getElementById("info").innerText = "狀態：已退出房間";
+      document.getElementById("systemMsg").innerText = "";
+      document.getElementById("timerDisplay").innerText = "";
+      document.getElementById("hostConfigPanel").style.display = "none";
+      document.getElementById("waitingConfigMsg").style.display = "none";
+      lastRoomState = null;
+    }
+  }
+
+  socket.on("user-connected", (pid) => {
+    if (myStream && pid) {
+      const call = peer.call(pid, myStream);
+      call.on('stream', (s) => {
+        const audio = document.createElement('audio');
+        audio.srcObject = s; audio.autoplay = true;
+        audioContainer.append(audio);
+      });
+    }
+  });
+
+  socket.on("roomCreated", (rid) => {
+    currentRoom = rid;
+    document.getElementById("setupArea").style.display = "none";
+    document.getElementById("startBtn").style.display = "block";
+    document.getElementById("leaveBtn").style.display = "block";
+    document.getElementById("info").innerText = "房號：" + rid + " (等待中)";
+    startMicMonitor();
+  });
+
+  socket.on("timer", (count) => {
+    document.getElementById("timerDisplay").innerText = count > 0 ? count + "s" : "";
+  });
+
+  function resetLobbyClientUI() {
+    if (voteRevealInterval != null) {
+      clearInterval(voteRevealInterval);
+      voteRevealInterval = null;
+    }
+    const info = document.getElementById("info");
+    info.style.background = "";
+    info.style.color = "";
+    document.getElementById("timerDisplay").innerText = "";
+    document.getElementById("voteCounter").style.display = "none";
+    document.getElementById("voteDetailArea").innerHTML = "";
+    document.getElementById("systemMsg").innerText = "";
+    inPK = [];
+    canShoot = false;
+    isSkillProcessing = false;
+    witchKnowledgeId = null;
+    myRole = "";
+    document.getElementById("myStatus").style.display = "none";
+    const speechEl = document.getElementById("speechBanner");
+    speechEl.style.display = "none";
+    speechEl.innerHTML = "";
+    speakingPeers.clear();
+  }
+
+  socket.on("update", (room) => {
+    if (!currentRoom) return; 
+    lastRoomState = room;
+
+    if (room.phase !== "DAY" || room.daySubPhase !== "vote") {
+      if (voteRevealInterval != null) {
+        clearInterval(voteRevealInterval);
+        voteRevealInterval = null;
+      }
+    }
+    const list = document.getElementById("players");
+    const info = document.getElementById("info");
+    list.innerHTML = "";
+    const me = room.players.find(p => p.id === socket.id);
+
+    document.getElementById("setupArea").style.display = "none";
+    document.getElementById("leaveBtn").style.display = "block";
+    
+    if (room.host === socket.id && room.phase === "WAIT") {
+        document.getElementById("startBtn").style.display = "block";
+        document.getElementById("startBtn").disabled = !room.configReady;
+    } else {
+        document.getElementById("startBtn").style.display = "none";
+    }
+
+    if (room.phase === "WAIT") {
+      resetLobbyClientUI();
+      const isHost = room.host === socket.id;
+      const wm = document.getElementById("waitingConfigMsg");
+      const hp = document.getElementById("hostConfigPanel");
+      if (isHost) {
+        hp.style.display = "block";
+        wm.style.display = "none";
+        renderHostRoleChips(room);
+      } else {
+        hp.style.display = "none";
+        wm.style.display = "block";
+        const c = room.configRoleCount != null ? room.configRoleCount : 0;
+        wm.textContent = room.configReady
+          ? "房長已完成角色分配，等待開始。"
+          : "房長設定中…（已配置 " + c + " 個角色，房內 " + room.players.length + " 人）";
+      }
+    } else {
+      document.getElementById("hostConfigPanel").style.display = "none";
+      document.getElementById("waitingConfigMsg").style.display = "none";
+    }
+
+    info.innerText = "房號：" + currentRoom + " | 階段：" + room.phase;
+
+    const speechEl = document.getElementById("speechBanner");
+    if (room.phase === "DAY" && room.daySubPhase === "speech") {
+      speechEl.style.display = "block";
+      const cur = room.players.find((p) => p.id === room.currentSpeechId);
+      speechEl.innerHTML =
+        "🎤 <strong>發言階段</strong> — 請 <strong>" +
+        (cur ? cur.name : "—") +
+        "</strong> 發言";
+    } else {
+      speechEl.style.display = "none";
+      speechEl.innerHTML = "";
+    }
+
+    if (room.phase === "NIGHT_WOLF") { 
+        document.getElementById("voteCounter").style.display = "none";
+        document.getElementById("voteDetailArea").innerHTML = "";
+        inPK = [];
+    }
+
+    room.players.forEach((p) => {
+      const li = document.createElement("li");
+      li.setAttribute("data-sid", p.id);
+      if (!p.alive) li.className = "dead";
+
+      const nameRow = document.createElement("div");
+      nameRow.className = "player-name-row";
+      const dot = document.createElement("span");
+      dot.className = "speaking-dot";
+      dot.title = "發言中";
+      dot.style.display = p.alive && speakingPeers.has(p.id) ? "inline-block" : "none";
+      const nameSpan = document.createElement("span");
+      let label = p.name + (p.alive ? "" : " 💀") + (p.id === room.host ? " (房長)" : "");
+      if (p.knightRevealed) label += " ⚔️[騎士]";
+      nameSpan.textContent = label;
+      nameRow.appendChild(dot);
+      nameRow.appendChild(nameSpan);
+      li.appendChild(nameRow);
+
+      const group = document.createElement("div");
+      group.className = "action-group";
+
+      if (me && me.alive && !isSkillProcessing) {
+        if (room.phase === "NIGHT_WOLF" && ['wolf', 'wolfking'].includes(me.role) && p.id !== me.id && p.alive) {
+          const btn = document.createElement("button"); btn.innerText = "擊殺"; btn.className = "action-btn btn-kill";
+          btn.onclick = () => socket.emit("wolfKill", { roomId: currentRoom, targetId: p.id });
+          group.appendChild(btn);
+        }
+        if (room.phase === "NIGHT_SEER" && me.role === "seer" && p.id !== me.id && p.alive) {
+          const btn = document.createElement("button"); btn.innerText = "查驗"; btn.className = "action-btn btn-check";
+          btn.onclick = () => socket.emit("seerAction", { roomId: currentRoom, targetId: p.id });
+          group.appendChild(btn);
+        }
+        if (room.phase === "NIGHT_WITCH" && me.role === "witch") {
+          if (p.id === witchKnowledgeId && me.hasAntidote) {
+            const btn = document.createElement("button"); btn.innerText = "救活"; btn.className = "action-btn btn-save";
+            btn.onclick = () => socket.emit("witchSave", { roomId: currentRoom });
+            group.appendChild(btn);
+          }
+          if (p.id !== me.id && me.hasPoison && p.alive) {
+            const btn = document.createElement("button"); btn.innerText = "毒死"; btn.className = "action-btn btn-poison";
+            btn.onclick = () => socket.emit("witchPoison", { roomId: currentRoom, targetId: p.id });
+            group.appendChild(btn);
+          }
+        }
+        if (
+          room.phase === "DAY" &&
+          room.daySubPhase === "vote" &&
+          p.alive &&
+          !inPK.includes(socket.id) &&
+          (inPK.length === 0 || inPK.includes(p.id))
+        ) {
+          const btn = document.createElement("button"); btn.innerText = "投票"; btn.className = "action-btn btn-vote btn-v-act";
+          btn.onclick = () => {
+            socket.emit("castVote", { roomId: currentRoom, targetId: p.id });
+            document.querySelectorAll('.btn-v-act').forEach(b => b.remove());
+          };
+          group.appendChild(btn);
+        }
+        if (
+          room.phase === "DAY" &&
+          room.daySubPhase === "speech" &&
+          room.currentSpeechId === socket.id &&
+          me.role === "knight" &&
+          me.alive &&
+          !me.knightSkillUsed &&
+          p.id !== me.id &&
+          p.alive
+        ) {
+          const kb = document.createElement("button");
+          kb.innerText = "⚔️翻牌撞";
+          kb.className = "action-btn btn-knight-charge btn-knight-act";
+          kb.title = "翻牌自證騎士並衝撞該玩家：狼死天黑；好人則自己出局";
+          kb.onclick = () => {
+            if (!confirm("確定翻牌並衝撞 " + p.name + "？（每局僅一次）")) return;
+            socket.emit("knightCharge", { roomId: currentRoom, targetId: p.id });
+            document.querySelectorAll(".btn-knight-act").forEach((b) => b.remove());
+          };
+          group.appendChild(kb);
+        }
+      }
+
+      if (canShoot && p.alive && p.id !== socket.id) {
+        const btn = document.createElement("button"); btn.innerText = "🔫 擊斃"; btn.className = "action-btn btn-hunter";
+        btn.onclick = () => { socket.emit("hunterAction", { roomId: currentRoom, targetId: p.id }); canShoot = false; isSkillProcessing = false; };
+        group.appendChild(btn);
+      }
+
+      li.appendChild(group);
+      list.appendChild(li);
+    });
+
+    if (room.phase === "DAY" && room.daySubPhase === "speech") {
+      const canAdvance =
+        room.host === socket.id || room.currentSpeechId === socket.id;
+      if (canAdvance) {
+        const sb = document.createElement("button");
+        sb.className = "btn-speech";
+        sb.innerText =
+          room.currentSpeechId === socket.id ? "✓ 我說完了" : "⏭ 下一個（略過）";
+        sb.onclick = () => socket.emit("nextSpeech", { roomId: currentRoom });
+        list.appendChild(sb);
+      }
+    }
+
+    if (room.phase === "DAY" && room.daySubPhase === "vote" && room.host === socket.id) {
+      const btn = document.createElement("button"); btn.innerText = "👉 結算投票";
+      btn.style.background = "#533483"; btn.style.color = "white";
+      btn.onclick = () => socket.emit("finishVote", currentRoom);
+      list.appendChild(btn);
+    }
+  });
+
+  socket.on("showFinalVotes", (detail) => {
+    const area = document.getElementById("voteDetailArea");
+    area.innerHTML = "";
+    detail.forEach(d => {
+      const tag = document.createElement("span"); 
+      tag.className = "vote-tag";
+      tag.innerText = `🗳️ ${d.voterName} ➔ ${d.targetName}`;
+      area.appendChild(tag);
+    });
+    document.getElementById("voteCounter").style.display = "block";
+    
+    if (voteRevealInterval != null) clearInterval(voteRevealInterval);
+    let timeLeft = 8;
+    voteRevealInterval = setInterval(() => {
+      document.getElementById("systemMsg").innerText = `📣 投票結果已公布 (預計 ${timeLeft}s 後消失)`;
+      timeLeft--;
+      if (timeLeft < 0) {
+        clearInterval(voteRevealInterval);
+        voteRevealInterval = null;
+      }
+    }, 1000);
+  });
+
+  socket.on("voteUpdate", ({ count, total }) => {
+    document.getElementById("voteCounter").style.display = "block";
+    document.getElementById("votedNum").innerText = count;
+    document.getElementById("totalNum").innerText = total;
+  });
+
+  socket.on("hunterCanShoot", () => {
+    canShoot = true;
+    isSkillProcessing = true;
+    document.getElementById("systemMsg").innerHTML = "<span style='color:gold;'>🔫 技能就緒！請選擇一名玩家擊斃。</span>";
+  });
+
+  socket.on("seerResult", (isBad) => {
+    const text = isBad ? "👺 查驗結果：此玩家為【狼人陣營】" : "😇 查驗結果：此玩家為【好人陣營】";
+    const color = isBad ? "#e94560" : "#2ecc71";
+    document.getElementById("systemMsg").innerHTML = `<span style="color:${color}">${text}</span>`;
+  });
+
+  socket.on("pkMode", (cand) => { 
+    inPK = cand; 
+    document.getElementById("systemMsg").innerText = "⚖️ 進入 PK 輪，請候選人發言！";
+  });
+
+  socket.on("role", (r) => { 
+    myRole = r; 
+    document.getElementById("myStatus").style.display = "block";
+    document.getElementById("roleName").innerText = ROLE_LABELS[r] || r; 
+  });
+
+  socket.on("gameOver", (w) => {
+    document.getElementById("info").style.background = "#f1c40f";
+    document.getElementById("info").style.color = "#000";
+    document.getElementById("info").innerText = `🎉 遊戲結束：${w} 獲勝！`;
+  });
+
+  socket.on("systemMsg", (m) => { document.getElementById("systemMsg").innerText = "📣 " + m; });
+  socket.on("witchKnowledge", (id) => { witchKnowledgeId = id; });
+
+  socket.on("peerSpeaking", ({ id, active }) => {
+    if (active) speakingPeers.add(id);
+    else speakingPeers.delete(id);
+    refreshSpeakingIndicators();
+  });
+</script>
+</body>
+</html>

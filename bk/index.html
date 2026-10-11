@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <title>🐺 Web 狼人殺 - 遊戲室</title>
+  <style>
+    body { font-family: "Microsoft JhengHei", sans-serif; padding: 20px; background-color: #f4f4f9; color: #333; }
+    .container { max-width: 600px; margin: auto; background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+    h1 { text-align: center; color: #2c3e50; }
+    
+    .room-controls { background: #f9f9f9; padding: 15px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #ddd; }
+    input, select { padding: 10px; margin: 8px 0; width: 100%; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; }
+    
+    button { width: 100%; padding: 12px; cursor: pointer; border: none; border-radius: 5px; font-weight: bold; transition: 0.3s; margin-top: 5px; }
+    .btn-create { background: #4CAF50; color: white; }
+    .btn-join { background: #2196F3; color: white; }
+    .btn-start { background: #ff9800; color: white; display: none; margin-top: 20px; }
+    button:hover { opacity: 0.8; }
+
+    #info { background: #34495e; color: white; padding: 10px; border-radius: 5px; text-align: center; margin: 15px 0; }
+    #timerDisplay { font-size: 2.5em; text-align: center; color: #e74c3c; font-weight: bold; margin: 10px 0; min-height: 1.2em; }
+    #systemMsg { color: #e74c3c; font-weight: bold; text-align: center; height: 20px; margin-bottom: 10px; }
+    
+    #myStatus { 
+      margin-top: 10px; padding: 15px; border: 2px dashed #4CAF50; 
+      border-radius: 10px; background: #e8f5e9; display: none; text-align: center;
+    }
+    #roleName { font-size: 1.5em; font-weight: bold; color: #2e7d32; }
+
+    ul { list-style: none; padding: 0; }
+    li { 
+      background: #fff; border: 1px solid #eee; margin-bottom: 8px; 
+      padding: 10px 15px; border-radius: 8px; display: flex; 
+      justify-content: space-between; align-items: center;
+    }
+    .dead { background: #f0f0f0 !important; color: #bbb; text-decoration: line-through; }
+    .action-btn { width: auto; padding: 5px 10px; font-size: 0.8em; margin: 0; }
+    .btn-kill { background: #e74c3c; color: white; }
+    .btn-check { background: #9b59b6; color: white; }
+    .btn-vote { background: #f39c12; color: white; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>🐺 Web 狼人殺</h1>
+
+  <div class="room-controls" id="setupArea">
+    <input id="userName" placeholder="輸入你的名字" />
+    <hr>
+    <label>房長設定遊戲板題：</label>
+    <select id="playerLimit">
+      <option value="4">4 人板 (1狼 2神 1民)</option>
+      <option value="10">10 人板 (2狼 2神 6民)</option>
+      <option value="12" selected>12 人板 (4狼 4神 4民)</option>
+    </select>
+    <button class="btn-create" onclick="create()">建立房間</button>
+    <br><br>
+    <input id="roomNumber" placeholder="輸入 4 位房號" />
+    <button class="btn-join" onclick="join()">加入房間</button>
+  </div>
+
+  <div id="systemMsg"></div>
+  <h2 id="info">狀態：等待中...</h2>
+  
+  <div id="timerDisplay"></div>
+  
+  <div id="myStatus">
+    <div>你的身分是</div>
+    <div id="roleName">?</div>
+  </div>
+
+  <button id="startBtn" class="btn-start" onclick="startGame()">開始遊戲</button>
+
+  <h3>玩家列表：</h3>
+  <ul id="players"></ul>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const socket = io();
+  let currentRoom = "";
+  let myRole = "";
+
+  const nameInput = document.getElementById("userName");
+  const roomInput = document.getElementById("roomNumber");
+  const infoText = document.getElementById("info");
+  const playersList = document.getElementById("players");
+  const startBtn = document.getElementById("startBtn");
+  const statusDiv = document.getElementById("myStatus");
+  const roleNameDisplay = document.getElementById("roleName");
+  const systemMsg = document.getElementById("systemMsg");
+  const timerDisplay = document.getElementById("timerDisplay");
+
+  function create() {
+    if (!nameInput.value) return alert("請輸入名字");
+    const maxPlayers = document.getElementById("playerLimit").value;
+    socket.emit("createRoom", { name: nameInput.value, maxPlayers: maxPlayers });
+  }
+
+  function join() {
+    const roomId = roomInput.value.trim().toUpperCase();
+    if (!nameInput.value || !roomId) return alert("請填寫名字與房號");
+    currentRoom = roomId;
+    socket.emit("joinRoom", { roomId: roomId, name: nameInput.value });
+  }
+
+  function startGame() {
+    if (currentRoom) {
+      socket.emit("startGame", currentRoom);
+    }
+  }
+
+  socket.on("roomCreated", (roomId) => {
+    currentRoom = roomId;
+    infoText.innerText = "房號：" + roomId + " (等待玩家加入)";
+    startBtn.style.display = "block"; 
+    document.getElementById("setupArea").style.display = "none";
+  });
+
+  // 監聽動態倒數
+  socket.on("timer", (count) => {
+    if (count > 0) {
+      timerDisplay.innerText = count + "s";
+    } else {
+      timerDisplay.innerText = "";
+    }
+  });
+
+  socket.on("update", (room) => {
+    playersList.innerHTML = "";
+    infoText.innerText = "房號：" + currentRoom + " | 階段：" + translatePhase(room.phase);
+    
+    const me = room.players.find(p => p.id === socket.id);
+
+    room.players.forEach((p) => {
+      const li = document.createElement("li");
+      if (!p.alive) li.className = "dead";
+      li.innerText = p.name + (p.alive ? "" : " 💀");
+
+      if (p.alive && me && me.alive) {
+        // 1. 狼人擊殺
+        if (room.phase === "NIGHT_WOLF" && me.role === "wolf" && p.id !== me.id) {
+          const btn = document.createElement("button");
+          btn.innerText = "擊殺";
+          btn.className = "action-btn btn-kill";
+          btn.onclick = () => socket.emit("wolfKill", { roomId: currentRoom, targetId: p.id });
+          li.appendChild(btn);
+        }
+        // 2. 預言家查驗
+        if (room.phase === "NIGHT_SEER" && me.role === "seer" && p.id !== me.id) {
+          const btn = document.createElement("button");
+          btn.innerText = "查驗";
+          btn.className = "action-btn btn-check";
+          btn.onclick = () => socket.emit("seerAction", { roomId: currentRoom, targetId: p.id });
+          li.appendChild(btn);
+        }
+        // 3. 白天投票 (可投自己)
+        if (room.phase === "DAY") { 
+          const vBtn = document.createElement("button");
+          vBtn.innerText = (p.id === me.id) ? "投自己" : "投他";
+          vBtn.className = "action-btn btn-vote btn-vote-action";
+          vBtn.onclick = () => {
+            socket.emit("castVote", { roomId: currentRoom, targetId: p.id });
+            document.querySelectorAll('.btn-vote-action').forEach(b => b.remove());
+            alert("你已完成投票！");
+          };
+          li.appendChild(vBtn);
+        }
+      }
+      playersList.appendChild(li);
+    });
+
+    // 房長結算按鈕
+    if (room.phase === "DAY" && room.host === socket.id) {
+      const finishLi = document.createElement("li");
+      finishLi.style.background = "none"; finishLi.style.border = "none";
+      const finishBtn = document.createElement("button");
+      finishBtn.innerText = "👉 結束討論並結算投票";
+      finishBtn.style.background = "#34495e"; finishBtn.style.color = "white";
+      finishBtn.onclick = () => {
+        if(confirm("確定要結算嗎？")) socket.emit("finishVote", currentRoom);
+      };
+      finishLi.appendChild(finishBtn);
+      playersList.appendChild(finishLi);
+    }
+  });
+
+  socket.on("role", (role) => {
+    myRole = role;
+    const roleMap = {
+      'wolf': '狼人 🐺', 'seer': '預言家 🔮', 'witch': '女巫 🧪',
+      'hunter': '獵人 🔫', 'idiot': '白痴 🤡', 'villager': '平民 🧑‍🌾'
+    };
+    statusDiv.style.display = "block";
+    roleNameDisplay.innerText = roleMap[role] || role;
+    if(role === 'wolf') roleNameDisplay.style.color = 'red';
+    alert("遊戲開始！你的身分是：" + (roleMap[role] || role));
+  });
+
+  socket.on("seerResult", (isBad) => {
+    alert(isBad ? "查驗結果：他是壞人！👹" : "查驗結果：他是好人。😇");
+  });
+
+  socket.on("witchKnowledge", (killedId) => {
+    if (killedId) {
+      if (confirm("昨晚死的是 ID: " + killedId + "，要救他嗎？")) {
+        socket.emit("witchSave", { roomId: currentRoom });
+      }
+    } else {
+      alert("昨晚是平安夜。");
+    }
+  });
+
+  socket.on("gameOver", (winner) => {
+    // 彈出華麗的勝利訊息
+    alert("🎉 遊戲結束！ 🎉\n恭喜 【" + winner + "】 獲得勝利！");
+    
+    // 也可以在系統訊息顯示
+    systemMsg.innerHTML = `<h2 style="color: gold;">🏆 勝利者：${winner}</h2>`;
+    
+    // 清空計時器顯示
+    if (timerDisplay) timerDisplay.innerText = "";
+  });
+
+  socket.on("systemMsg", (msg) => {
+    systemMsg.innerText = "📣 " + msg;
+    setTimeout(() => { systemMsg.innerText = ""; }, 4000);
+  });
+
+  function translatePhase(phase) {
+    const map = {
+      'WAIT': '等待玩家',
+      'NIGHT_WOLF': '狼人請殺人',
+      'NIGHT_SEER': '預言家請驗人',
+      'NIGHT_WITCH': '女巫請用藥',
+      'DAY': '白天討論/投票'
+    };
+    return map[phase] || phase;
+  }
+
+  socket.on("error", (msg) => alert(msg));
+</script>
+</body>
+</html>
