@@ -98,6 +98,33 @@ function effectiveConfigRoleCount(room) {
   return list ? list.length : 0;
 }
 
+function attachVoicePolicy(payload, room, socketId) {
+  const player = room.players.find((p) => p.id === socketId);
+  const isWolf = player && ["wolf", "wolfking"].includes(player.role);
+  const wolfPhase = room.phase === "NIGHT_WOLF";
+  payload.canSpeak = !wolfPhase || !!(isWolf && player.alive);
+  payload.voicePeerIds = wolfPhase
+    ? isWolf && player.alive
+      ? room.players
+          .filter((p) => p.id !== socketId && p.alive && ["wolf", "wolfking"].includes(p.role))
+          .map((p) => p.peerId)
+          .filter(Boolean)
+      : []
+    : room.players.filter((p) => p.id !== socketId).map((p) => p.peerId).filter(Boolean);
+  payload.visibleSpeakingIds = wolfPhase
+    ? isWolf && player.alive
+      ? room.players
+          .filter((p) => p.alive && ["wolf", "wolfking"].includes(p.role))
+          .map((p) => p.id)
+      : []
+    : room.players.map((p) => p.id);
+  payload.players = room.players.map((p) => {
+    const { peerId: _peerId, role: _role, ...publicPlayer } = p;
+    return p.id === socketId ? { ...publicPlayer, role: p.role } : publicPlayer;
+  });
+  return payload;
+}
+
 function roomPayloadForSocket(room, socketId) {
   const count = effectiveConfigRoleCount(room);
   const configReady =
@@ -111,14 +138,14 @@ function roomPayloadForSocket(room, socketId) {
       out.speechOrder = room.speechOrder ? [...room.speechOrder] : [];
       out.currentSpeechId = room.currentSpeechId ?? null;
     }
-    return out;
+    return attachVoicePolicy(out, room, socketId);
   }
   const { customRoles: _omit, ...rest } = room;
-  return {
+  return attachVoicePolicy({
     ...rest,
     configRoleCount: count,
     configReady,
-  };
+  }, room, socketId);
 }
 
 module.exports = {

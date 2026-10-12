@@ -409,8 +409,18 @@ io.on("connection", (socket) => {
   socket.on("speakingState", ({ roomId, active }) => {
     const id = roomId && String(roomId).toUpperCase();
     const room = id && rooms[id];
-    if (!room || !room.players.some((p) => p.id === socket.id)) return;
-    io.to(id).emit("peerSpeaking", { id: socket.id, active: !!active });
+    const speaker = room && room.players.find((p) => p.id === socket.id);
+    if (!speaker) return;
+    const isActive = !!active;
+    if (room.phase === "NIGHT_WOLF") {
+      const isWolf = ["wolf", "wolfking"].includes(speaker.role);
+      if (!isWolf || (isActive && !speaker.alive)) return;
+      room.players
+        .filter((p) => ["wolf", "wolfking"].includes(p.role))
+        .forEach((p) => io.to(p.id).emit("peerSpeaking", { id: socket.id, active: isActive }));
+      return;
+    }
+    io.to(id).emit("peerSpeaking", { id: socket.id, active: isActive });
   });
 
   socket.on("joinRoom", ({ roomId, name, peerId }) => {

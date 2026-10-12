@@ -22,6 +22,7 @@
     #info { background: #533483; color: white; padding: 10px; border-radius: 5px; text-align: center; margin: 15px 0; font-size: 1.1em; transition: 0.5s; }
     #timerDisplay { font-size: 2.5em; text-align: center; color: #e94560; font-weight: bold; margin: 10px 0; min-height: 1.2em; }
     #systemMsg { color: #f1c40f; font-weight: bold; text-align: center; min-height: 24px; margin-bottom: 10px; font-size: 1.1em; }
+    #voiceMode { display: none; text-align: center; color: #bdc3c7; margin: 4px 0 10px; font-size: .9em; }
     
     #myStatus { 
       margin-top: 10px; padding: 15px; border: 2px dashed #2ecc71; 
@@ -156,6 +157,7 @@
 
   <div id="systemMsg"></div>
   <div id="speechBanner"></div>
+  <div id="voiceMode" aria-live="polite"></div>
   <h2 id="info">狀態：等待中...</h2>
   <div id="timerDisplay"></div>
   
@@ -232,6 +234,10 @@
   let isSkillProcessing = false;
   let lastRoomState = null;
   const speakingPeers = new Set();
+  const peerCalls = new Map();
+  const remoteAudios = new Map();
+  let allowedVoicePeerIds = new Set();
+  let localCanSpeak = true;
   let voteRevealInterval = null;
   let micCtx = null, micAnalyser = null, micSource = null, micRaf = null;
   let micMonitorRunning = false, lastSpeakingSent = false;
@@ -321,6 +327,95 @@
     lastSpeakingSent = false;
   }
 
+  function setMicPermission(allowed) {
+    localCanSpeak = !!allowed;
+    if (myStream) {
+      myStream.getAudioTracks().forEach((track) => { track.enabled = localCanSpeak; });
+    }
+    if (!localCanSpeak && lastSpeakingSent) {
+      if (currentRoom) socket.emit("speakingState", { roomId: currentRoom, active: false });
+      lastSpeakingSent = false;
+      speakingPeers.delete(socket.id);
+      refreshSpeakingIndicators();
+    }
+  }
+
+  function closePeerCall(peerId) {
+    const call = peerCalls.get(peerId);
+    if (call) {
+      peerCalls.delete(peerId);
+      call.close();
+    }
+    const audio = remoteAudios.get(peerId);
+    if (audio) {
+      audio.pause();
+      audio.srcObject = null;
+      audio.remove();
+      remoteAudios.delete(peerId);
+    }
+  }
+
+  function closeAllPeerCalls() {
+    [...peerCalls.keys()].forEach(closePeerCall);
+    [...remoteAudios.keys()].forEach((peerId) => {
+      const audio = remoteAudios.get(peerId);
+      if (audio) {
+        audio.pause();
+        audio.srcObject = null;
+        audio.remove();
+      }
+      remoteAudios.delete(peerId);
+    });
+  }
+
+  function attachPeerCall(call) {
+    const peerId = call.peer;
+    const previous = peerCalls.get(peerId);
+    if (previous && previous !== call) previous.close();
+    peerCalls.set(peerId, call);
+    call.on("stream", (remoteStream) => {
+      let audio = remoteAudios.get(peerId);
+      if (!audio) {
+        audio = document.createElement("audio");
+        audio.autoplay = true;
+        audio.dataset.peerId = peerId;
+        remoteAudios.set(peerId, audio);
+        audioContainer.append(audio);
+      }
+      audio.srcObject = remoteStream;
+    });
+    const cleanup = () => {
+      if (peerCalls.get(peerId) === call) peerCalls.delete(peerId);
+      const audio = remoteAudios.get(peerId);
+      if (audio) {
+        audio.pause();
+        audio.srcObject = null;
+        audio.remove();
+        remoteAudios.delete(peerId);
+      }
+    };
+    call.on("close", cleanup);
+    call.on("error", cleanup);
+  }
+
+  function connectPeerIfNeeded(peerId) {
+    if (!myStream || !peer.id || !peerId || peerId === peer.id) return;
+    if (!allowedVoicePeerIds.has(peerId) || peerCalls.has(peerId)) return;
+    // Use a stable caller for each pair so peers do not create duplicate calls.
+    if (peer.id.localeCompare(peerId) > 0) return;
+    const call = peer.call(peerId, myStream);
+    if (call) attachPeerCall(call);
+  }
+
+  function syncVoicePolicy(room) {
+    setMicPermission(room.canSpeak !== false);
+    allowedVoicePeerIds = new Set(room.voicePeerIds || []);
+    for (const peerId of peerCalls.keys()) {
+      if (!allowedVoicePeerIds.has(peerId)) closePeerCall(peerId);
+    }
+    for (const peerId of allowedVoicePeerIds) connectPeerIfNeeded(peerId);
+  }
+
   function startMicMonitor() {
     if (!myStream || !currentRoom) return;
     stopMicMonitor();
@@ -341,6 +436,15 @@
     function loop() {
       if (!micMonitorRunning) return;
       micRaf = requestAnimationFrame(loop);
+      if (!localCanSpeak) {
+        loudFrames = 0;
+        quietFrames++;
+        if (quietFrames >= NEED_QUIET && lastSpeakingSent) {
+          lastSpeakingSent = false;
+          socket.emit("speakingState", { roomId: currentRoom, active: false });
+        }
+        return;
+      }
       if (micCtx.state === "suspended") micCtx.resume();
       micAnalyser.getByteTimeDomainData(data);
       let sum = 0;
@@ -402,12 +506,16 @@
   window.addEventListener("resize", layoutPlayerRing);
 
   peer.on('call', (call) => {
+    if (!myStream || !allowedVoicePeerIds.has(call.peer)) {
+      call.close();
+      return;
+    }
     call.answer(myStream);
-    call.on('stream', (remoteStream) => {
-      const audio = document.createElement('audio');
-      audio.srcObject = remoteStream; audio.autoplay = true;
-      audioContainer.append(audio);
-    });
+    attachPeerCall(call);
+  });
+
+  peer.on("open", () => {
+    if (lastRoomState) syncVoicePolicy(lastRoomState);
   });
 
   async function create() {
@@ -431,6 +539,9 @@
     if (!currentRoom) return;
     if (confirm("確定要離開房間嗎？")) {
       stopMicMonitor();
+      closeAllPeerCalls();
+      allowedVoicePeerIds.clear();
+      setMicPermission(true);
       speakingPeers.clear();
       socket.emit("leaveRoom", currentRoom);
       currentRoom = "";
@@ -445,6 +556,8 @@
       document.querySelector(".container").classList.remove("in-game");
       document.getElementById("playersHeading").textContent = "玩家列表：";
       document.getElementById("roundActions").innerHTML = "";
+      document.getElementById("voiceMode").style.display = "none";
+      document.getElementById("voiceMode").textContent = "";
       document.getElementById("info").innerText = "狀態：已退出房間";
       document.getElementById("systemMsg").innerText = "";
       document.getElementById("timerDisplay").innerText = "";
@@ -455,13 +568,9 @@
   }
 
   socket.on("user-connected", (pid) => {
-    if (myStream && pid) {
-      const call = peer.call(pid, myStream);
-      call.on('stream', (s) => {
-        const audio = document.createElement('audio');
-        audio.srcObject = s; audio.autoplay = true;
-        audioContainer.append(audio);
-      });
+    if (pid && lastRoomState && lastRoomState.phase !== "NIGHT_WOLF") {
+      allowedVoicePeerIds.add(pid);
+      connectPeerIfNeeded(pid);
     }
   });
 
@@ -504,7 +613,9 @@
 
   socket.on("update", (room) => {
     if (!currentRoom) return; 
+    if (lastRoomState && lastRoomState.phase !== room.phase) speakingPeers.clear();
     lastRoomState = room;
+    syncVoicePolicy(room);
 
     if (room.phase !== "DAY" || room.daySubPhase !== "vote") {
       if (voteRevealInterval != null) {
@@ -515,6 +626,16 @@
     const list = document.getElementById("players");
     const info = document.getElementById("info");
     const inGame = room.phase !== "WAIT";
+    const voiceMode = document.getElementById("voiceMode");
+    if (room.phase === "NIGHT_WOLF") {
+      voiceMode.style.display = "block";
+      voiceMode.textContent = room.canSpeak
+        ? "🐺 狼人語音已開啟：只有狼人彼此聽得到"
+        : "🔇 狼人討論中：你的麥克風已自動關閉";
+    } else {
+      voiceMode.style.display = "none";
+      voiceMode.textContent = "";
+    }
     list.classList.toggle("player-ring", inGame);
     document.querySelector(".container").classList.toggle("in-game", inGame);
     document.getElementById("playersHeading").textContent = inGame ? "玩家座位：" : "玩家列表：";
@@ -757,6 +878,13 @@
   socket.on("witchKnowledge", (id) => { witchKnowledgeId = id; });
 
   socket.on("peerSpeaking", ({ id, active }) => {
+    if (
+      lastRoomState &&
+      lastRoomState.phase === "NIGHT_WOLF" &&
+      !(lastRoomState.visibleSpeakingIds || []).includes(id)
+    ) {
+      return;
+    }
     if (active) speakingPeers.add(id);
     else speakingPeers.delete(id);
     refreshSpeakingIndicators();
