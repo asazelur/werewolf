@@ -76,6 +76,61 @@
       border: 1px solid #e94560; border-radius: 10px; text-align: center; color: #f1c40f;
     }
     .btn-speech { width: auto; padding: 10px 18px; margin: 6px 6px 0 0; background: #e94560; color: #fff; }
+
+    .container.in-game { max-width: 1080px; }
+    #players.player-ring {
+      position: relative; width: 100%; max-width: 900px; height: 500px;
+      margin: 12px auto 4px; padding: 0; list-style: none;
+      border-radius: 50%; isolation: isolate;
+    }
+    #players.player-ring::before {
+      content: "🐺  討論桌"; position: absolute; z-index: 0;
+      left: 50%; top: 50%; transform: translate(-50%, -50%);
+      width: 34%; height: 38%; display: grid; place-items: center;
+      box-sizing: border-box; border: 2px solid rgba(116, 190, 153, .42);
+      border-radius: 50%; color: #b9dbc6; font-weight: bold; letter-spacing: .08em;
+      background: radial-gradient(ellipse, #23483e 0%, #18362f 68%, #142a29 100%);
+      box-shadow: 0 0 30px rgba(46, 204, 113, .12), inset 0 0 22px rgba(0, 0, 0, .28);
+    }
+    #players.player-ring > li {
+      position: absolute; z-index: 1; box-sizing: border-box; width: var(--seat-width, 130px);
+      min-height: 66px; margin: 0; padding: 8px 7px; border-radius: 13px;
+      display: flex; flex-direction: column; justify-content: center; gap: 5px;
+      text-align: center; background: linear-gradient(145deg, #173a62, #0f2948);
+      border: 1px solid #3b6286; box-shadow: 0 5px 14px rgba(0, 0, 0, .34);
+      transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+    }
+    #players.player-ring > li.dead { background: #202432 !important; }
+    #players.player-ring > li.is-turn-speaker {
+      outline: 2px solid #f1c40f; outline-offset: 3px;
+      box-shadow: 0 0 16px rgba(241, 196, 15, .45), 0 5px 14px rgba(0, 0, 0, .34);
+    }
+    #players.player-ring > li.is-speaking {
+      border-color: #2ecc71; background: linear-gradient(145deg, #18533f, #103b36);
+      box-shadow: 0 0 10px #2ecc71, 0 0 24px rgba(46, 204, 113, .48), 0 5px 14px rgba(0, 0, 0, .34);
+      animation: seat-speaking-pulse 1.15s ease-in-out infinite alternate;
+    }
+    @keyframes seat-speaking-pulse {
+      from { box-shadow: 0 0 7px #2ecc71, 0 0 15px rgba(46, 204, 113, .32), 0 5px 14px rgba(0, 0, 0, .34); }
+      to { box-shadow: 0 0 13px #2ecc71, 0 0 27px rgba(46, 204, 113, .62), 0 5px 14px rgba(0, 0, 0, .34); }
+    }
+    #players.player-ring .player-name-row { justify-content: center; min-width: 0; gap: 5px; }
+    #players.player-ring .player-name-row > span:last-child {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .92em;
+    }
+    #players.player-ring .speaking-dot { width: 8px; height: 8px; }
+    #players.player-ring .action-group { justify-content: center; gap: 3px; }
+    #players.player-ring .action-btn { padding: 4px 6px; font-size: .72em; }
+    #roundActions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 8px auto 16px; }
+    #roundActions > button { margin: 0; }
+    @media (max-width: 600px) {
+      body { padding: 8px; }
+      .container.in-game { padding: 12px 10px; }
+      #players.player-ring::before { width: 34%; height: 28%; font-size: .85em; }
+      #players.player-ring > li { min-height: 58px; padding: 6px 4px; }
+      #players.player-ring .player-name-row > span:last-child { font-size: .78em; }
+      #players.player-ring .action-btn { padding: 3px 4px; font-size: .65em; }
+    }
   </style>
 </head>
 <body>
@@ -164,8 +219,9 @@
     <button type="button" class="btn-inline" style="background:#c0392b;color:#fff;margin-top:10px" onclick="hostClearRoles()">清空角色</button>
   </div>
 
-  <h3>玩家列表：</h3>
+  <h3 id="playersHeading">玩家列表：</h3>
   <ul id="players"></ul>
+  <div id="roundActions"></div>
   <div id="audio-container"></div>
 </div>
 
@@ -318,9 +374,32 @@
       const dot = li.querySelector(".speaking-dot");
       if (!dot) return;
       const dead = li.classList.contains("dead");
-      dot.style.display = !dead && speakingPeers.has(sid) ? "inline-block" : "none";
+      const active = !dead && speakingPeers.has(sid);
+      dot.style.display = active ? "inline-block" : "none";
+      li.classList.toggle("is-speaking", active);
     });
   }
+
+  function layoutPlayerRing() {
+    const list = document.getElementById("players");
+    if (!list.classList.contains("player-ring")) return;
+    const seats = [...list.querySelectorAll(":scope > li[data-sid]")];
+    if (!seats.length) return;
+    const width = list.clientWidth;
+    const seatWidth = Math.min(154, Math.max(82, width * 0.18));
+    const height = Math.max(460, Math.min(680, 220 + width * 0.28));
+    list.style.height = height + "px";
+    list.style.setProperty("--seat-width", seatWidth + "px");
+    const radiusX = Math.max(0, (width - seatWidth) / 2 - 5);
+    const radiusY = Math.max(0, (height - 112) / 2 - 4);
+    seats.forEach((seat, index) => {
+      const angle = -Math.PI / 2 + (2 * Math.PI * index) / seats.length;
+      seat.style.left = (width / 2 + Math.cos(angle) * radiusX) + "px";
+      seat.style.top = (height / 2 + Math.sin(angle) * radiusY) + "px";
+      seat.style.transform = "translate(-50%, -50%)";
+    });
+  }
+  window.addEventListener("resize", layoutPlayerRing);
 
   peer.on('call', (call) => {
     call.answer(myStream);
@@ -359,7 +438,13 @@
       document.getElementById("startBtn").style.display = "none";
       document.getElementById("leaveBtn").style.display = "none";
       document.getElementById("myStatus").style.display = "none";
-      document.getElementById("players").innerHTML = "";
+      const players = document.getElementById("players");
+      players.innerHTML = "";
+      players.classList.remove("player-ring");
+      players.style.height = "";
+      document.querySelector(".container").classList.remove("in-game");
+      document.getElementById("playersHeading").textContent = "玩家列表：";
+      document.getElementById("roundActions").innerHTML = "";
       document.getElementById("info").innerText = "狀態：已退出房間";
       document.getElementById("systemMsg").innerText = "";
       document.getElementById("timerDisplay").innerText = "";
@@ -429,6 +514,11 @@
     }
     const list = document.getElementById("players");
     const info = document.getElementById("info");
+    const inGame = room.phase !== "WAIT";
+    list.classList.toggle("player-ring", inGame);
+    document.querySelector(".container").classList.toggle("in-game", inGame);
+    document.getElementById("playersHeading").textContent = inGame ? "玩家座位：" : "玩家列表：";
+    document.getElementById("roundActions").innerHTML = "";
     list.innerHTML = "";
     const me = room.players.find(p => p.id === socket.id);
 
@@ -488,7 +578,13 @@
     room.players.forEach((p) => {
       const li = document.createElement("li");
       li.setAttribute("data-sid", p.id);
-      if (!p.alive) li.className = "dead";
+      li.className = "player-seat";
+      if (!p.alive) li.classList.add("dead");
+      if (inGame && room.phase === "DAY" && room.daySubPhase === "speech" && room.currentSpeechId === p.id) {
+        li.classList.add("is-turn-speaker");
+        li.title = "輪到這位玩家發言";
+      }
+      if (p.alive && speakingPeers.has(p.id)) li.classList.add("is-speaking");
 
       const nameRow = document.createElement("div");
       nameRow.className = "player-name-row";
@@ -586,7 +682,7 @@
         sb.innerText =
           room.currentSpeechId === socket.id ? "✓ 我說完了" : "⏭ 下一個（略過）";
         sb.onclick = () => socket.emit("nextSpeech", { roomId: currentRoom });
-        list.appendChild(sb);
+        document.getElementById("roundActions").appendChild(sb);
       }
     }
 
@@ -594,8 +690,9 @@
       const btn = document.createElement("button"); btn.innerText = "👉 結算投票";
       btn.style.background = "#533483"; btn.style.color = "white";
       btn.onclick = () => socket.emit("finishVote", currentRoom);
-      list.appendChild(btn);
+      document.getElementById("roundActions").appendChild(btn);
     }
+    layoutPlayerRing();
   });
 
   socket.on("showFinalVotes", (detail) => {
