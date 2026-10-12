@@ -412,7 +412,9 @@ io.on("connection", (socket) => {
     const speaker = room && room.players.find((p) => p.id === socket.id);
     if (!speaker) return;
     const isActive = !!active;
-    if (room.phase === "NIGHT_WOLF") {
+    const nightPhase = String(room.phase || "").startsWith("NIGHT_");
+    if (nightPhase) {
+      if (room.phase !== "NIGHT_WOLF") return;
       const isWolf = ["wolf", "wolfking"].includes(speaker.role);
       if (!isWolf || (isActive && !speaker.alive)) return;
       room.players
@@ -488,22 +490,53 @@ io.on("connection", (socket) => {
   });
 
   socket.on("wolfKill", ({ roomId, targetId }) => {
-    const id = roomId.toUpperCase();
+    const id = roomId && String(roomId).toUpperCase();
     const room = rooms[id];
-    if (!nightData[id] || !room) return;
-
-    if (!nightData[id].killed) {
-      nightData[id].killed = targetId;
-      const target = room.players.find(p => p.id === targetId);
-      room.players.forEach(p => {
-        if (['wolf', 'wolfking'].includes(p.role)) {
-          io.to(p.id).emit("wolfTargetLocked", { 
-            targetId: targetId, 
-            msg: `狼人隊友已鎖定目標：${target ? target.name : "未知"}` 
-          });
-        }
-      });
+    if (!room || !nightData[id] || room.phase !== "NIGHT_WOLF") return;
+    const killer = room.players.find((p) => p.id === socket.id);
+    const target = room.players.find((p) => p.id === targetId);
+    if (!killer || !killer.alive || !["wolf", "wolfking"].includes(killer.role)) {
+      socket.emit("actionError", "只有存活的狼人可以在狼人階段擊殺。");
+      return;
     }
+    if (!target || !target.alive || target.id === killer.id) {
+      socket.emit("actionError", "請選擇一位存活的其他玩家。");
+      return;
+    }
+    if (["wolf", "wolfking"].includes(target.role)) {
+      socket.emit("actionError", "狼人不能選擇狼人隊友作為擊殺目標。");
+      return;
+    }
+
+    const lockedId = nightData[id].killed || targetId;
+    if (!nightData[id].killed) nightData[id].killed = targetId;
+    const lockedTarget = room.players.find((p) => p.id === lockedId);
+    const message = `狼人刀已鎖定：${lockedTarget ? lockedTarget.name : "未知"}`;
+    room.players
+      .filter((p) => ["wolf", "wolfking"].includes(p.role))
+      .forEach((p) => {
+        io.to(p.id).emit("wolfTargetLocked", { targetId: lockedId, msg: message });
+      });
+  });
+
+  socket.on("seerAction", ({ roomId, targetId }) => {
+    const id = roomId && String(roomId).toUpperCase();
+    const room = rooms[id];
+    const seer = room && room.players.find((p) => p.id === socket.id);
+    const target = room && room.players.find((p) => p.id === targetId);
+    if (!room || room.phase !== "NIGHT_SEER") {
+      socket.emit("actionError", "現在不是預言家查驗階段。");
+      return;
+    }
+    if (!seer || !seer.alive || seer.role !== "seer") {
+      socket.emit("actionError", "只有存活的預言家可以查驗。");
+      return;
+    }
+    if (!target || !target.alive || target.id === seer.id) {
+      socket.emit("actionError", "請選擇一位存活的其他玩家。");
+      return;
+    }
+    socket.emit("seerResult", ["wolf", "wolfking"].includes(target.role));
   });
 
   socket.on("hunterAction", ({ roomId, targetId }) => {
@@ -618,12 +651,6 @@ io.on("connection", (socket) => {
         io.to(id).emit("systemMsg", `🎤 請「${nextP.name}」發言。`);
     }
     broadcastRoomUpdate(id);
-  });
-
-  socket.on("seerAction", ({ roomId, targetId }) => {
-    const room = rooms[roomId.toUpperCase()];
-    const target = room && room.players.find(p => p.id === targetId);
-    if (target) socket.emit("seerResult", ['wolf', 'wolfking'].includes(target.role));
   });
 
   socket.on("witchSave", ({ roomId }) => {

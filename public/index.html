@@ -627,11 +627,15 @@
     const info = document.getElementById("info");
     const inGame = room.phase !== "WAIT";
     const voiceMode = document.getElementById("voiceMode");
-    if (room.phase === "NIGHT_WOLF") {
+    if (room.phase.startsWith("NIGHT_")) {
       voiceMode.style.display = "block";
-      voiceMode.textContent = room.canSpeak
-        ? "🐺 狼人語音已開啟：只有狼人彼此聽得到"
-        : "🔇 狼人討論中：你的麥克風已自動關閉";
+      if (room.phase === "NIGHT_WOLF") {
+        voiceMode.textContent = room.canSpeak
+          ? "🐺 狼人語音已開啟：只有狼人彼此聽得到"
+          : "🔇 狼人討論中：你的麥克風已自動關閉";
+      } else {
+        voiceMode.textContent = "🔇 夜間行動中：所有玩家的麥克風已自動關閉";
+      }
     } else {
       voiceMode.style.display = "none";
       voiceMode.textContent = "";
@@ -725,7 +729,7 @@
       group.className = "action-group";
 
       if (me && me.alive && !isSkillProcessing) {
-        if (room.phase === "NIGHT_WOLF" && ['wolf', 'wolfking'].includes(me.role) && p.id !== me.id && p.alive) {
+        if (room.phase === "NIGHT_WOLF" && ['wolf', 'wolfking'].includes(me.role) && p.id !== me.id && p.alive && !(room.wolfTeamIds || []).includes(p.id)) {
           const btn = document.createElement("button"); btn.innerText = "擊殺"; btn.className = "action-btn btn-kill";
           btn.onclick = () => socket.emit("wolfKill", { roomId: currentRoom, targetId: p.id });
           group.appendChild(btn);
@@ -875,6 +879,8 @@
   });
 
   socket.on("systemMsg", (m) => { document.getElementById("systemMsg").innerText = "📣 " + m; });
+  socket.on("wolfTargetLocked", ({ msg }) => { document.getElementById("systemMsg").innerText = "📣 " + msg; });
+  socket.on("actionError", (msg) => { document.getElementById("systemMsg").innerText = "⚠️ " + msg; });
   socket.on("witchKnowledge", (id) => { witchKnowledgeId = id; });
 
   socket.on("peerSpeaking", ({ id, active }) => {

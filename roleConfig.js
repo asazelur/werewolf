@@ -102,22 +102,29 @@ function attachVoicePolicy(payload, room, socketId) {
   const player = room.players.find((p) => p.id === socketId);
   const isWolf = player && ["wolf", "wolfking"].includes(player.role);
   const wolfPhase = room.phase === "NIGHT_WOLF";
-  payload.canSpeak = !wolfPhase || !!(isWolf && player.alive);
-  payload.voicePeerIds = wolfPhase
-    ? isWolf && player.alive
+  const nightPhase = String(room.phase || "").startsWith("NIGHT_");
+  payload.canSpeak = !nightPhase || !!(wolfPhase && isWolf && player.alive);
+  const canJoinWolfConversation = !!(wolfPhase && isWolf && player.alive);
+  payload.voicePeerIds = nightPhase
+    ? canJoinWolfConversation
       ? room.players
           .filter((p) => p.id !== socketId && p.alive && ["wolf", "wolfking"].includes(p.role))
           .map((p) => p.peerId)
           .filter(Boolean)
       : []
     : room.players.filter((p) => p.id !== socketId).map((p) => p.peerId).filter(Boolean);
-  payload.visibleSpeakingIds = wolfPhase
-    ? isWolf && player.alive
+  payload.visibleSpeakingIds = nightPhase
+    ? canJoinWolfConversation
       ? room.players
           .filter((p) => p.alive && ["wolf", "wolfking"].includes(p.role))
           .map((p) => p.id)
       : []
     : room.players.map((p) => p.id);
+  payload.wolfTeamIds = wolfPhase && isWolf && player.alive
+    ? room.players
+        .filter((p) => p.id !== socketId && p.alive && ["wolf", "wolfking"].includes(p.role))
+        .map((p) => p.id)
+    : [];
   payload.players = room.players.map((p) => {
     const { peerId: _peerId, role: _role, ...publicPlayer } = p;
     return p.id === socketId ? { ...publicPlayer, role: p.role } : publicPlayer;
