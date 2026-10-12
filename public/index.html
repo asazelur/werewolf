@@ -881,6 +881,7 @@
   socket.on("systemMsg", (m) => { document.getElementById("systemMsg").innerText = "📣 " + m; });
   socket.on("wolfTargetLocked", ({ msg }) => { document.getElementById("systemMsg").innerText = "📣 " + msg; });
   socket.on("actionError", (msg) => { document.getElementById("systemMsg").innerText = "⚠️ " + msg; });
+  socket.on("witchActionLocked", (msg) => { document.getElementById("systemMsg").innerText = "🧙 " + msg; });
   socket.on("witchKnowledge", (id) => { witchKnowledgeId = id; });
 
   socket.on("peerSpeaking", ({ id, active }) => {

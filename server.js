@@ -263,6 +263,7 @@ function processDaybreak(roomId) {
   if (!room || !data) return;
 
   let killedNames = [];
+  const newlyDeadPlayers = [];
   
   if (data.usedPoison) {
     const target = room.players.find(p => p.id === data.usedPoison);
@@ -270,6 +271,7 @@ function processDaybreak(roomId) {
       target.alive = false;
       target.deathReason = "poisoned";
       killedNames.push(target.name);
+      newlyDeadPlayers.push(target);
     }
   }
 
@@ -279,12 +281,14 @@ function processDaybreak(roomId) {
       target.alive = false; 
       target.deathReason = "killed";
       killedNames.push(target.name);
-      
-      if (target.role === 'hunter' || target.role === 'wolfking') {
-        io.to(roomId).emit("skillProcessing", true);
-        io.to(target.id).emit("hunterCanShoot", true);
-      }
+      newlyDeadPlayers.push(target);
     }
+  }
+
+  const deathSkillPlayer = newlyDeadPlayers.find((p) => ["hunter", "wolfking"].includes(p.role));
+  if (deathSkillPlayer) {
+    io.to(roomId).emit("skillProcessing", true);
+    io.to(deathSkillPlayer.id).emit("hunterCanShoot", true);
   }
 
   room.phase = "DAY";
@@ -654,25 +658,54 @@ io.on("connection", (socket) => {
   });
 
   socket.on("witchSave", ({ roomId }) => {
-    const id = roomId.toUpperCase();
-    const room = rooms[id];
-    const witch = room.players.find(p => p.id === socket.id);
-    if (witch && witch.hasAntidote && nightData[id]) {
-      nightData[id].usedAntidote = true;
-      witch.hasAntidote = false;
-      broadcastRoomUpdate(id);
+    const id = roomId && String(roomId).toUpperCase();
+    const room = id && rooms[id];
+    const witch = room && room.players.find((p) => p.id === socket.id);
+    const data = id && nightData[id];
+    if (!room || room.phase !== "NIGHT_WITCH" || !data) {
+      socket.emit("actionError", "現在不是女巫用藥階段。");
+      return;
     }
+    if (!witch || !witch.alive || witch.role !== "witch" || !witch.hasAntidote) {
+      socket.emit("actionError", "你目前不能使用解藥。");
+      return;
+    }
+    if (!data.killed || data.usedAntidote) {
+      socket.emit("actionError", "目前沒有可救的狼刀目標，或解藥已使用。");
+      return;
+    }
+    data.usedAntidote = true;
+    witch.hasAntidote = false;
+    socket.emit("witchActionLocked", "解藥已使用，狼刀目標將獲救。");
+    broadcastRoomUpdate(id);
   });
 
   socket.on("witchPoison", ({ roomId, targetId }) => {
-    const id = roomId.toUpperCase();
-    const room = rooms[id];
-    const witch = room.players.find(p => p.id === socket.id);
-    if (witch && witch.hasPoison && nightData[id]) {
-      nightData[id].usedPoison = targetId;
-      witch.hasPoison = false;
-      broadcastRoomUpdate(id);
+    const id = roomId && String(roomId).toUpperCase();
+    const room = id && rooms[id];
+    const witch = room && room.players.find((p) => p.id === socket.id);
+    const target = room && room.players.find((p) => p.id === targetId);
+    const data = id && nightData[id];
+    if (!room || room.phase !== "NIGHT_WITCH" || !data) {
+      socket.emit("actionError", "現在不是女巫用藥階段。");
+      return;
     }
+    if (!witch || !witch.alive || witch.role !== "witch" || !witch.hasPoison) {
+      socket.emit("actionError", "你目前不能使用毒藥。");
+      return;
+    }
+    if (!target || !target.alive || target.id === witch.id) {
+      socket.emit("actionError", "請選擇一位存活的其他玩家。");
+      return;
+    }
+    if (data.usedPoison) {
+      socket.emit("actionError", "毒藥已使用，目標不能更改。");
+      return;
+    }
+    data.usedPoison = targetId;
+    witch.hasPoison = false;
+    socket.emit("witchActionLocked", `毒藥已使用，${target.name} 將於天亮時死亡。`);
+    broadcastRoomUpdate(id);
   });
 
   socket.on("castVote", ({ roomId, targetId }) => {
