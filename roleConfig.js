@@ -137,8 +137,15 @@ function roomPayloadForSocket(room, socketId) {
   const configReady =
     count === room.players.length && room.players.length > 0;
   const isHost = room.host === socketId;
+  const {
+    nightPhaseInterval: _nightPhaseInterval,
+    enterNightTimeout: _enterNightTimeout,
+    execVoteTimeout: _execVoteTimeout,
+    gameOverResetTimeout: _gameOverResetTimeout,
+    ...clientRoom
+  } = room;
   if (room.phase !== "WAIT" || isHost) {
-    const out = { ...room, configReady };
+    const out = { ...clientRoom, configReady };
     if (room.phase === "DAY") {
       out.daySubPhase = room.daySubPhase;
       out.speechIndex = room.speechIndex;
@@ -147,7 +154,7 @@ function roomPayloadForSocket(room, socketId) {
     }
     return attachVoicePolicy(out, room, socketId);
   }
-  const { customRoles: _omit, ...rest } = room;
+  const { customRoles: _omit, ...rest } = clientRoom;
   return attachVoicePolicy({
     ...rest,
     configRoleCount: count,
