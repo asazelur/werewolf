@@ -103,9 +103,23 @@ function attachVoicePolicy(payload, room, socketId) {
   const isWolf = player && ["wolf", "wolfking"].includes(player.role);
   const wolfPhase = room.phase === "NIGHT_WOLF";
   const nightPhase = String(room.phase || "").startsWith("NIGHT_");
-  payload.canSpeak = !nightPhase || !!(wolfPhase && isWolf && player.alive);
+  const gameOver = !!room.gameOver;
+  const daySpeechPhase = room.phase === "DAY" && room.daySubPhase === "speech";
+  const votedOutSpeaker = !!(
+    player && !player.alive && player.deathReason === "voted" && room.phase === "DAY"
+  );
+  const isCurrentSpeaker = !!(player && player.alive && room.currentSpeechId === socketId);
+  payload.canSpeak = gameOver
+    ? true
+    : nightPhase
+      ? !!(wolfPhase && isWolf && player.alive)
+      : player && !player.alive
+        ? votedOutSpeaker
+        : !daySpeechPhase || isCurrentSpeaker;
   const canJoinWolfConversation = !!(wolfPhase && isWolf && player.alive);
-  payload.voicePeerIds = nightPhase
+  payload.voicePeerIds = gameOver
+    ? room.players.filter((p) => p.id !== socketId).map((p) => p.peerId).filter(Boolean)
+    : nightPhase
     ? canJoinWolfConversation
       ? room.players
           .filter((p) => p.id !== socketId && p.alive && ["wolf", "wolfking"].includes(p.role))
@@ -113,7 +127,9 @@ function attachVoicePolicy(payload, room, socketId) {
           .filter(Boolean)
       : []
     : room.players.filter((p) => p.id !== socketId).map((p) => p.peerId).filter(Boolean);
-  payload.visibleSpeakingIds = nightPhase
+  payload.visibleSpeakingIds = gameOver
+    ? room.players.map((p) => p.id)
+    : nightPhase
     ? canJoinWolfConversation
       ? room.players
           .filter((p) => p.alive && ["wolf", "wolfking"].includes(p.role))
@@ -127,8 +143,10 @@ function attachVoicePolicy(payload, room, socketId) {
     : [];
   payload.players = room.players.map((p) => {
     const { peerId: _peerId, role: _role, ...publicPlayer } = p;
-    return p.id === socketId ? { ...publicPlayer, role: p.role } : publicPlayer;
+    return p.id === socketId || gameOver ? { ...publicPlayer, role: p.role } : publicPlayer;
   });
+  payload.gameOver = gameOver;
+  if (gameOver) payload.gameWinner = room.gameWinner;
   return payload;
 }
 

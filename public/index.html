@@ -18,6 +18,7 @@
     .btn-start { background: #e67e22; color: white; display: none; margin-top: 20px; }
     .btn-leave { background: #34495e; color: white; display: none; margin-bottom: 10px; }
     button:hover { filter: brightness(1.2); }
+    button:active { transform: scale(.97); filter: brightness(.82); }
 
     #info { background: #533483; color: white; padding: 10px; border-radius: 5px; text-align: center; margin: 15px 0; font-size: 1.1em; transition: 0.5s; }
     #timerDisplay { font-size: 2.5em; text-align: center; color: #e94560; font-weight: bold; margin: 10px 0; min-height: 1.2em; }
@@ -76,6 +77,14 @@
       display: none; margin: 12px 0; padding: 12px 14px; background: #1a1a2e;
       border: 1px solid #e94560; border-radius: 10px; text-align: center; color: #f1c40f;
     }
+    #gameOverPanel {
+      display: none; margin: 14px 0; padding: 16px; border: 2px solid #f1c40f;
+      border-radius: 12px; background: linear-gradient(145deg, #3a2e52, #20233e); text-align: center;
+    }
+    #gameOverPanel h2 { color: #f1c40f; margin: 0 0 8px; }
+    #roleRevealList { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+    #roleRevealList li { display: block; width: auto; margin: 0; padding: 8px 12px; border: 1px solid #79699b; }
+    #returnLobbyBtn { display: none; max-width: 360px; margin: 12px auto 0; background: #e67e22; color: #fff; }
     .btn-speech { width: auto; padding: 10px 18px; margin: 6px 6px 0 0; background: #e94560; color: #fff; }
 
     .container.in-game { max-width: 1080px; }
@@ -160,6 +169,13 @@
   <div id="voiceMode" aria-live="polite"></div>
   <h2 id="info">狀態：等待中...</h2>
   <div id="timerDisplay"></div>
+  <section id="gameOverPanel" aria-live="polite">
+    <h2 id="gameOverTitle">遊戲結束</h2>
+    <p id="gameOverHint">所有玩家都可以自由語音。</p>
+    <h3>本局身分</h3>
+    <ul id="roleRevealList"></ul>
+    <button id="returnLobbyBtn" onclick="returnToLobby()">房長：返回房間大廳</button>
+  </section>
   
   <div id="voteCounter" style="display:none; text-align:center; color:#f1c40f; margin-bottom:10px;">
     已投票：<span id="votedNum">0</span> / <span id="totalNum">0</span>
@@ -241,6 +257,7 @@
   let voteRevealInterval = null;
   let micCtx = null, micAnalyser = null, micSource = null, micRaf = null;
   let micMonitorRunning = false, lastSpeakingSent = false;
+  let uiAudioContext = null;
   const peer = new Peer(); 
   const audioContainer = document.getElementById("audio-container");
 
@@ -248,6 +265,36 @@
     wolf: "狼人", wolfking: "狼王", seer: "預言家", witch: "女巫",
     hunter: "獵人", villager: "村民", idiot: "白痴", knight: "騎士",
   };
+
+  function playUiSound(kind = "click") {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    try {
+      if (!uiAudioContext) uiAudioContext = new AudioContextClass();
+      if (uiAudioContext.state === "suspended") uiAudioContext.resume();
+      const tones = kind === "success" ? [660, 880] : kind === "error" ? [260] : [520];
+      const startAt = uiAudioContext.currentTime;
+      tones.forEach((frequency, index) => {
+        const start = startAt + index * 0.085;
+        const oscillator = uiAudioContext.createOscillator();
+        const gain = uiAudioContext.createGain();
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(frequency, start);
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(kind === "click" ? 0.045 : 0.075, start + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.11);
+        oscillator.connect(gain);
+        gain.connect(uiAudioContext.destination);
+        oscillator.start(start);
+        oscillator.stop(start + 0.12);
+      });
+    } catch (e) {}
+  }
+
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest && event.target.closest("button");
+    if (button && !button.disabled) playUiSound("click");
+  }, true);
 
   socket.on("error", (msg) => {
     alert(typeof msg === "string" ? msg : (msg && msg.message) || "發生錯誤");
@@ -478,7 +525,8 @@
       const dot = li.querySelector(".speaking-dot");
       if (!dot) return;
       const dead = li.classList.contains("dead");
-      const active = !dead && speakingPeers.has(sid);
+      const votedOutMaySpeak = lastRoomState && lastRoomState.phase === "DAY" && li.dataset.deathReason === "voted";
+      const active = (!dead || votedOutMaySpeak) && speakingPeers.has(sid);
       dot.style.display = active ? "inline-block" : "none";
       li.classList.toggle("is-speaking", active);
     });
@@ -534,6 +582,7 @@
   }
 
   function startGame() { if (currentRoom) socket.emit("startGame", currentRoom); }
+  function returnToLobby() { if (currentRoom) socket.emit("returnToLobby", currentRoom); }
 
   function leaveRoom() {
     if (!currentRoom) return;
@@ -595,6 +644,8 @@
     const info = document.getElementById("info");
     info.style.background = "";
     info.style.color = "";
+    document.getElementById("gameOverPanel").style.display = "none";
+    document.getElementById("roleRevealList").innerHTML = "";
     document.getElementById("timerDisplay").innerText = "";
     document.getElementById("voteCounter").style.display = "none";
     document.getElementById("voteDetailArea").innerHTML = "";
@@ -613,7 +664,10 @@
 
   socket.on("update", (room) => {
     if (!currentRoom) return; 
-    if (lastRoomState && lastRoomState.phase !== room.phase) speakingPeers.clear();
+    if (lastRoomState && (
+      lastRoomState.phase !== room.phase ||
+      lastRoomState.currentSpeechId !== room.currentSpeechId
+    )) speakingPeers.clear();
     lastRoomState = room;
     syncVoicePolicy(room);
 
@@ -627,7 +681,10 @@
     const info = document.getElementById("info");
     const inGame = room.phase !== "WAIT";
     const voiceMode = document.getElementById("voiceMode");
-    if (room.phase.startsWith("NIGHT_")) {
+    if (room.gameOver) {
+      voiceMode.style.display = "block";
+      voiceMode.textContent = "🎙️ 遊戲結束：所有玩家都可以自由講話";
+    } else if (room.phase.startsWith("NIGHT_")) {
       voiceMode.style.display = "block";
       if (room.phase === "NIGHT_WOLF") {
         voiceMode.textContent = room.canSpeak
@@ -636,9 +693,34 @@
       } else {
         voiceMode.textContent = "🔇 夜間行動中：所有玩家的麥克風已自動關閉";
       }
+    } else if (room.phase === "DAY" && room.daySubPhase === "speech") {
+      voiceMode.style.display = "block";
+      const currentSpeaker = room.players.find((p) => p.id === room.currentSpeechId);
+      voiceMode.textContent = room.canSpeak
+        ? "🎙️ 你的麥克風已開啟，可以發言"
+        : `🔇 輪到「${currentSpeaker ? currentSpeaker.name : "玩家"}」發言，其他玩家麥克風已關閉`;
+    } else if (room.phase === "DAY" && !room.canSpeak) {
+      voiceMode.style.display = "block";
+      voiceMode.textContent = "🔇 你已出局，麥克風已關閉";
     } else {
       voiceMode.style.display = "none";
       voiceMode.textContent = "";
+    }
+    const gameOverPanel = document.getElementById("gameOverPanel");
+    gameOverPanel.style.display = room.gameOver ? "block" : "none";
+    if (room.gameOver) {
+      document.getElementById("gameOverTitle").textContent = `🎉 遊戲結束：${room.gameWinner || "本局"} 獲勝！`;
+      document.getElementById("gameOverHint").textContent = room.host === socket.id
+        ? "所有人都可以繼續語音；房長準備好後可返回大廳。"
+        : "所有人都可以繼續語音，等待房長決定何時返回大廳。";
+      document.getElementById("returnLobbyBtn").style.display = room.host === socket.id ? "block" : "none";
+      const roleList = document.getElementById("roleRevealList");
+      roleList.innerHTML = "";
+      room.players.forEach((p) => {
+        const item = document.createElement("li");
+        item.textContent = `${p.name} — ${ROLE_LABELS[p.role] || p.role || "未知"}`;
+        roleList.appendChild(item);
+      });
     }
     list.classList.toggle("player-ring", inGame);
     document.querySelector(".container").classList.toggle("in-game", inGame);
@@ -703,6 +785,7 @@
     room.players.forEach((p) => {
       const li = document.createElement("li");
       li.setAttribute("data-sid", p.id);
+      li.setAttribute("data-death-reason", p.deathReason || "");
       li.className = "player-seat";
       if (!p.alive) li.classList.add("dead");
       if (inGame && room.phase === "DAY" && room.daySubPhase === "speech" && room.currentSpeechId === p.id) {
@@ -716,7 +799,7 @@
       const dot = document.createElement("span");
       dot.className = "speaking-dot";
       dot.title = "發言中";
-      dot.style.display = p.alive && speakingPeers.has(p.id) ? "inline-block" : "none";
+      dot.style.display = (p.alive || (room.phase === "DAY" && p.deathReason === "voted")) && speakingPeers.has(p.id) ? "inline-block" : "none";
       const nameSpan = document.createElement("span");
       let label = p.name + (p.alive ? "" : " 💀") + (p.id === room.host ? " (房長)" : "");
       if (p.knightRevealed) label += " ⚔️[騎士]";
@@ -850,12 +933,14 @@
   });
 
   socket.on("hunterCanShoot", () => {
+    playUiSound("success");
     canShoot = true;
     isSkillProcessing = true;
     document.getElementById("systemMsg").innerHTML = "<span style='color:gold;'>🔫 技能就緒！請選擇一名玩家擊斃。</span>";
   });
 
   socket.on("seerResult", (isBad) => {
+    playUiSound("success");
     const text = isBad ? "👺 查驗結果：此玩家為【狼人陣營】" : "😇 查驗結果：此玩家為【好人陣營】";
     const color = isBad ? "#e94560" : "#2ecc71";
     document.getElementById("systemMsg").innerHTML = `<span style="color:${color}">${text}</span>`;
@@ -873,15 +958,16 @@
   });
 
   socket.on("gameOver", (w) => {
+    playUiSound("success");
     document.getElementById("info").style.background = "#f1c40f";
     document.getElementById("info").style.color = "#000";
     document.getElementById("info").innerText = `🎉 遊戲結束：${w} 獲勝！`;
   });
 
   socket.on("systemMsg", (m) => { document.getElementById("systemMsg").innerText = "📣 " + m; });
-  socket.on("wolfTargetLocked", ({ msg }) => { document.getElementById("systemMsg").innerText = "📣 " + msg; });
-  socket.on("actionError", (msg) => { document.getElementById("systemMsg").innerText = "⚠️ " + msg; });
-  socket.on("witchActionLocked", (msg) => { document.getElementById("systemMsg").innerText = "🧙 " + msg; });
+  socket.on("wolfTargetLocked", ({ msg }) => { playUiSound("success"); document.getElementById("systemMsg").innerText = "📣 " + msg; });
+  socket.on("actionError", (msg) => { playUiSound("error"); document.getElementById("systemMsg").innerText = "⚠️ " + msg; });
+  socket.on("witchActionLocked", (msg) => { playUiSound("success"); document.getElementById("systemMsg").innerText = "🧙 " + msg; });
   socket.on("witchKnowledge", (id) => { witchKnowledgeId = id; });
 
   socket.on("peerSpeaking", ({ id, active }) => {

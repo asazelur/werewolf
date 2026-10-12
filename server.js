@@ -164,6 +164,7 @@ function countdown(roomId, seconds, nextStep) {
 function checkGameOver(roomId) {
   const room = rooms[roomId];
   if (!room) return false;
+  if (room.gameOver) return true;
 
   const alivePlayers = room.players.filter(p => p.alive);
   const wolves = alivePlayers.filter(p => ['wolf', 'wolfking'].includes(p.role));
@@ -180,33 +181,11 @@ function checkGameOver(roomId) {
   if (winner) {
     clearRoomTimers(roomId);
     delete nightData[roomId];
+    room.gameOver = true;
+    room.gameWinner = winner;
     io.to(roomId).emit("timer", 0);
+    broadcastRoomUpdate(roomId);
     io.to(roomId).emit("gameOver", winner);
-    if (room.gameOverResetTimeout) {
-      clearTimeout(room.gameOverResetTimeout);
-      delete room.gameOverResetTimeout;
-    }
-    room.gameOverResetTimeout = setTimeout(() => {
-      delete room.gameOverResetTimeout;
-      const r = rooms[roomId];
-      if (!r) return;
-      r.phase = "WAIT";
-      r.players.forEach((p) => {
-        p.role = null;
-        p.alive = true;
-        p.deathReason = null;
-        delete p.hasAntidote;
-        delete p.hasPoison;
-        delete p.knightSkillUsed;
-        delete p.knightRevealed;
-      });
-      delete r.pendingKnightNight;
-      clearDaySpeech(r);
-      pkPlayers[roomId] = [];
-      votes[roomId] = {};
-      delete nightData[roomId];
-      broadcastRoomUpdate(roomId);
-    }, 8000);
     return true;
   }
   return false;
@@ -367,6 +346,7 @@ io.on("connection", (socket) => {
     rooms[roomId] = {
       host: socket.id,
       phase: "WAIT",
+      gameOver: false,
       players: [],
       presetId: isCustom ? null : boardType,
       customRoles: isCustom ? null : [...presetList],
@@ -416,6 +396,10 @@ io.on("connection", (socket) => {
     const speaker = room && room.players.find((p) => p.id === socket.id);
     if (!speaker) return;
     const isActive = !!active;
+    if (room.gameOver) {
+      io.to(id).emit("peerSpeaking", { id: socket.id, active: isActive });
+      return;
+    }
     const nightPhase = String(room.phase || "").startsWith("NIGHT_");
     if (nightPhase) {
       if (room.phase !== "NIGHT_WOLF") return;
@@ -424,6 +408,19 @@ io.on("connection", (socket) => {
       room.players
         .filter((p) => ["wolf", "wolfking"].includes(p.role))
         .forEach((p) => io.to(p.id).emit("peerSpeaking", { id: socket.id, active: isActive }));
+      return;
+    }
+    if (room.phase === "DAY") {
+      const isVotedOut = !speaker.alive && speaker.deathReason === "voted";
+      if (!speaker.alive && !isVotedOut) return;
+      if (
+        speaker.alive &&
+        room.daySubPhase === "speech" &&
+        room.currentSpeechId !== socket.id
+      ) {
+        return;
+      }
+    } else if (!speaker.alive) {
       return;
     }
     io.to(id).emit("peerSpeaking", { id: socket.id, active: isActive });
@@ -470,6 +467,8 @@ io.on("connection", (socket) => {
     delete nightData[id];
     votes[id] = {};
     pkPlayers[id] = [];
+    room.gameOver = false;
+    delete room.gameWinner;
 
     shuffle(roles);
     room.players.forEach((p, i) => {
@@ -491,6 +490,32 @@ io.on("connection", (socket) => {
     delete room.pendingKnightNight;
 
     startNightFlow(id);
+  });
+
+  socket.on("returnToLobby", (roomId) => {
+    const id = roomId && String(roomId).toUpperCase();
+    const room = id && rooms[id];
+    if (!room || room.host !== socket.id || !room.gameOver) return;
+
+    room.phase = "WAIT";
+    room.gameOver = false;
+    delete room.gameWinner;
+    room.players.forEach((p) => {
+      p.role = null;
+      p.alive = true;
+      p.deathReason = null;
+      delete p.hasAntidote;
+      delete p.hasPoison;
+      delete p.knightSkillUsed;
+      delete p.knightRevealed;
+    });
+    delete room.pendingKnightNight;
+    clearDaySpeech(room);
+    pkPlayers[id] = [];
+    votes[id] = {};
+    delete nightData[id];
+    broadcastRoomUpdate(id);
+    io.to(id).emit("systemMsg", "房長已返回房間大廳，可以重新開始遊戲。");
   });
 
   socket.on("wolfKill", ({ roomId, targetId }) => {
