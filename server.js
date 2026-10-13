@@ -20,15 +20,14 @@ let nightData = {};
 let votes = {};     
 let pkPlayers = {}; 
 
+const ALLOWED_AVATARS = new Set([
+  "animal-wolf", "animal-fox", "animal-cat", "animal-owl",
+  "animal-panda", "animal-lion", "animal-frog", "animal-bear",
+  ...Array.from({ length: 12 }, (_, index) => `character-${String(index + 1).padStart(2, "0")}`),
+]);
+
 function sanitizeAvatar(avatar) {
-  if (
-    typeof avatar === "string" &&
-    avatar.length <= 6000 &&
-    /^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(avatar)
-  ) {
-    return avatar;
-  }
-  return null;
+  return typeof avatar === "string" && ALLOWED_AVATARS.has(avatar) ? avatar : "animal-wolf";
 }
 
 function broadcastRoomUpdate(roomId) {

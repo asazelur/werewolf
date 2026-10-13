@@ -10,10 +10,15 @@
     h1 { text-align: center; color: #e94560; text-shadow: 0 0 10px rgba(233, 69, 96, 0.5); }
     
     .room-controls { background: #0f3460; padding: 15px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #533483; }
-    .avatar-picker { display: flex; align-items: center; gap: 12px; margin: 10px 0; color: #bdc3c7; font-size: .9em; }
-    #avatarPreview { width: 54px; height: 54px; border-radius: 10px; overflow: hidden; object-fit: cover; background: #533483; display: grid; place-items: center; font-size: 1.6em; }
+    .avatar-picker { display: flex; align-items: flex-start; gap: 12px; margin: 12px 0 16px; color: #bdc3c7; font-size: .9em; }
+    #avatarPreview { width: 58px; height: 58px; flex: 0 0 58px; border-radius: 10px; overflow: hidden; background: #533483; display: grid; place-items: center; font-size: 1.7em; border: 2px solid #f1c40f; }
     #avatarPreview img { width: 100%; height: 100%; object-fit: cover; }
-    #avatarFile { width: auto; max-width: 100%; padding: 6px; margin: 4px 0; }
+    .avatar-choice-area { min-width: 0; flex: 1; }
+    .avatar-choices { display: grid; grid-template-columns: repeat(5, minmax(42px, 1fr)); gap: 7px; margin-top: 8px; }
+    .avatar-choice { width: 100%; aspect-ratio: 1; margin: 0; padding: 3px; display: grid; place-items: center; overflow: hidden; background: #1a1a2e; border: 2px solid #533483; border-radius: 9px; font-size: 1.6em; }
+    .avatar-choice img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 5px; }
+    .avatar-choice.selected { border-color: #f1c40f; box-shadow: 0 0 0 2px rgba(241, 196, 15, .22); }
+    .avatar-choice:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
     input, select { padding: 12px; margin: 8px 0; width: 100%; box-sizing: border-box; border: 1px solid #533483; border-radius: 5px; background: #1a1a2e; color: #fff; }
     
     button { width: 100%; padding: 12px; cursor: pointer; border: none; border-radius: 5px; font-weight: bold; transition: 0.3s; margin-top: 5px; }
@@ -157,6 +162,8 @@
     @media (max-width: 600px) {
       body { padding: 8px; }
       .container.in-game { padding: 12px 10px; }
+      .avatar-picker { flex-direction: column; }
+      .avatar-choices { grid-template-columns: repeat(5, minmax(0, 1fr)); }
       #gameBoard.in-game { grid-template-columns: minmax(0, 1fr) minmax(130px, .9fr) minmax(0, 1fr); grid-template-rows: repeat(var(--player-rows, 1), 144px); gap: 6px; }
       #players.player-grid > li { width: min(100%, 136px); padding: 8px 4px 5px; }
       .avatar-frame { width: 65%; max-width: 78px; font-size: 2em; }
@@ -177,7 +184,10 @@
     <input id="userName" placeholder="輸入你的名字" />
     <div class="avatar-picker">
       <div id="avatarPreview" aria-label="頭像預覽">🐺</div>
-      <label>玩家頭像（可略過）<br /><input id="avatarFile" type="file" accept="image/*" /></label>
+      <div class="avatar-choice-area">
+        <strong>選擇你的玩家頭像</strong>
+        <div id="avatarChoices" class="avatar-choices" role="group" aria-label="選擇玩家頭像"></div>
+      </div>
     </div>
     <select id="playerLimit">
       <option value="5">5 人測試板</option>
@@ -282,8 +292,7 @@
 <script>
   const socket = io();
   let currentRoom = "", myRole = "", myStream, witchKnowledgeId = null, canShoot = false, inPK = [];
-  let avatarData = null;
-  let avatarProcessing = Promise.resolve();
+  let avatarData = "animal-wolf";
   let isSkillProcessing = false;
   let lastRoomState = null;
   const speakingPeers = new Set();
@@ -303,62 +312,74 @@
     hunter: "獵人", villager: "村民", idiot: "白痴", knight: "騎士",
   };
 
-  async function prepareAvatar(file) {
-    if (!file || !file.type.startsWith("image/")) throw new Error("請選擇圖片檔案");
-    const objectUrl = URL.createObjectURL(file);
-    try {
-      const image = new Image();
-      image.src = objectUrl;
-      await image.decode();
-      const sourceSide = Math.min(image.naturalWidth, image.naturalHeight);
-      const sourceX = (image.naturalWidth - sourceSide) / 2;
-      const sourceY = (image.naturalHeight - sourceSide) / 2;
-      for (const size of [96, 80, 64]) {
-        const canvas = document.createElement("canvas");
-        canvas.width = size;
-        canvas.height = size;
-        const context = canvas.getContext("2d");
-        context.drawImage(image, sourceX, sourceY, sourceSide, sourceSide, 0, 0, size, size);
-        for (const quality of [0.62, 0.48, 0.36]) {
-          const data = canvas.toDataURL("image/jpeg", quality);
-          if (data.length <= 6000) return data;
-        }
-      }
-      throw new Error("圖片太大，請選擇較小的圖片");
-    } finally {
-      URL.revokeObjectURL(objectUrl);
-    }
-  }
-
-  document.getElementById("avatarFile").addEventListener("change", async (event) => {
-    const file = event.target.files && event.target.files[0];
-    if (!file) {
-      avatarData = null;
-      avatarProcessing = Promise.resolve();
-      document.getElementById("avatarPreview").textContent = "🐺";
-      return;
-    }
-    avatarProcessing = prepareAvatar(file).then((data) => {
-      avatarData = data;
-      const preview = document.getElementById("avatarPreview");
-      preview.textContent = "";
-      const image = document.createElement("img");
-      image.src = data;
-      image.alt = "頭像預覽";
-      preview.appendChild(image);
-    }).catch((error) => {
-      avatarData = null;
-      event.target.value = "";
-      alert(error.message || "讀取圖片失敗");
-    });
-    await avatarProcessing;
+  const ANIMAL_AVATARS = [
+    { id: "animal-wolf", label: "狼人", emoji: "🐺" },
+    { id: "animal-fox", label: "狐狸", emoji: "🦊" },
+    { id: "animal-cat", label: "貓咪", emoji: "🐱" },
+    { id: "animal-owl", label: "貓頭鷹", emoji: "🦉" },
+    { id: "animal-panda", label: "熊貓", emoji: "🐼" },
+    { id: "animal-lion", label: "獅子", emoji: "🦁" },
+    { id: "animal-frog", label: "青蛙", emoji: "🐸" },
+    { id: "animal-bear", label: "熊", emoji: "🐻" },
+  ];
+  const CHARACTER_AVATARS = Array.from({ length: 12 }, (_, index) => {
+    const id = `character-${String(index + 1).padStart(2, "0")}`;
+    return { id, label: `角色 ${String(index + 1).padStart(2, "0")}`, src: `/avatars/${id}.jpg` };
   });
+  const AVATAR_CHOICES = [...ANIMAL_AVATARS, ...CHARACTER_AVATARS];
 
   function avatarPlaceholder(playerId) {
-    const icons = ["🐺", "🦊", "🐱", "🦉", "🐼", "🦁", "🐸", "🐻"];
+    const icons = ANIMAL_AVATARS.map((choice) => choice.emoji);
     const seed = [...String(playerId || "")].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
     return icons[seed % icons.length];
   }
+
+  function setAvatarFace(element, choice, alt = "玩家頭像") {
+    element.replaceChildren();
+    if (choice.src) {
+      const image = document.createElement("img");
+      image.src = choice.src;
+      image.alt = alt;
+      element.appendChild(image);
+    } else {
+      element.textContent = choice.emoji;
+    }
+  }
+
+  function renderAvatarChoices() {
+    const list = document.getElementById("avatarChoices");
+    for (const choice of AVATAR_CHOICES) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "avatar-choice";
+      button.title = choice.label;
+      button.setAttribute("aria-label", choice.label);
+      button.setAttribute("aria-pressed", String(choice.id === avatarData));
+      if (choice.id === avatarData) button.classList.add("selected");
+      if (choice.src) {
+        const image = document.createElement("img");
+        image.src = choice.src;
+        image.alt = "";
+        image.loading = "lazy";
+        button.appendChild(image);
+      } else {
+        button.textContent = choice.emoji;
+      }
+      button.addEventListener("click", () => {
+        avatarData = choice.id;
+        setAvatarFace(document.getElementById("avatarPreview"), choice, `${choice.label}頭像`);
+        list.querySelectorAll(".avatar-choice").forEach((item) => {
+          const selected = item === button;
+          item.classList.toggle("selected", selected);
+          item.setAttribute("aria-pressed", String(selected));
+        });
+      });
+      list.appendChild(button);
+    }
+    setAvatarFace(document.getElementById("avatarPreview"), AVATAR_CHOICES[0], "狼人頭像");
+  }
+
+  renderAvatarChoices();
 
   function addGameLog(message, kind = "info") {
     const log = document.getElementById("gameLog");
@@ -660,7 +681,6 @@
 
   async function create() {
     if (!document.getElementById("userName").value) return alert("請輸入名字");
-    await avatarProcessing;
     await initMic();
     socket.emit("createRoom", { name: document.getElementById("userName").value, boardType: document.getElementById("playerLimit").value, peerId: peer.id, avatar: avatarData });
   }
@@ -668,7 +688,6 @@
   async function join() {
     const rid = document.getElementById("roomNumber").value.toUpperCase();
     if (!document.getElementById("userName").value || !rid) return alert("資訊不全");
-    await avatarProcessing;
     await initMic();
     currentRoom = rid;
     socket.emit("joinRoom", { roomId: rid, name: document.getElementById("userName").value, peerId: peer.id, avatar: avatarData });
@@ -914,15 +933,10 @@
 
       const avatar = document.createElement("div");
       avatar.className = "avatar-frame";
-      avatar.textContent = avatarPlaceholder(p.id);
-      if (p.avatar) {
-        const img = document.createElement("img");
-        img.src = p.avatar;
-        img.alt = `${p.name} 的頭像`;
-        img.onload = () => { avatar.textContent = ""; avatar.appendChild(img); };
-        img.onerror = () => img.remove();
-        avatar.appendChild(img);
-      }
+      const avatarChoice = AVATAR_CHOICES.find((choice) => choice.id === p.avatar) || {
+        id: "fallback", label: "預設動物頭像", emoji: avatarPlaceholder(p.id),
+      };
+      setAvatarFace(avatar, avatarChoice, `${p.name} 的頭像`);
       li.appendChild(avatar);
 
       const nameRow = document.createElement("div");
