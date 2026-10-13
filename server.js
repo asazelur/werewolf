@@ -20,6 +20,17 @@ let nightData = {};
 let votes = {};     
 let pkPlayers = {}; 
 
+function sanitizeAvatar(avatar) {
+  if (
+    typeof avatar === "string" &&
+    avatar.length <= 6000 &&
+    /^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(avatar)
+  ) {
+    return avatar;
+  }
+  return null;
+}
+
 function broadcastRoomUpdate(roomId) {
   const room = rooms[roomId];
   if (!room) return;
@@ -335,7 +346,7 @@ function handlePlayerExit(socket) {
 }
 
 io.on("connection", (socket) => {
-  socket.on("createRoom", ({ name, boardType, peerId }) => {
+  socket.on("createRoom", ({ name, boardType, peerId, avatar }) => {
     const isCustom = boardType === "custom";
     if (!isCustom && !PRESET_ROLES[boardType]) {
       return socket.emit("error", "無效的板子類型");
@@ -353,7 +364,7 @@ io.on("connection", (socket) => {
       nightFlowKey: isCustom ? "default" : boardType,
       maxPlayers,
     };
-    rooms[roomId].players.push({ id: socket.id, name: name.trim(), alive: true, role: null, peerId });
+    rooms[roomId].players.push({ id: socket.id, name: name.trim(), alive: true, role: null, peerId, avatar: sanitizeAvatar(avatar) });
     socket.join(roomId);
     socket.emit("roomCreated", roomId);
     broadcastRoomUpdate(roomId);
@@ -426,13 +437,13 @@ io.on("connection", (socket) => {
     io.to(id).emit("peerSpeaking", { id: socket.id, active: isActive });
   });
 
-  socket.on("joinRoom", ({ roomId, name, peerId }) => {
+  socket.on("joinRoom", ({ roomId, name, peerId, avatar }) => {
     const id = roomId.toUpperCase();
     const room = rooms[id];
     if (!room || room.phase !== "WAIT") return socket.emit("error", "無法加入！");
     if (room.players.length >= room.maxPlayers) return socket.emit("error", "房間已滿！");
 
-    room.players.push({ id: socket.id, name: name.trim(), alive: true, role: null, peerId });
+    room.players.push({ id: socket.id, name: name.trim(), alive: true, role: null, peerId, avatar: sanitizeAvatar(avatar) });
     socket.join(id);
     socket.to(id).emit("user-connected", peerId);
     broadcastRoomUpdate(id);

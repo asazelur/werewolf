@@ -10,6 +10,10 @@
     h1 { text-align: center; color: #e94560; text-shadow: 0 0 10px rgba(233, 69, 96, 0.5); }
     
     .room-controls { background: #0f3460; padding: 15px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #533483; }
+    .avatar-picker { display: flex; align-items: center; gap: 12px; margin: 10px 0; color: #bdc3c7; font-size: .9em; }
+    #avatarPreview { width: 54px; height: 54px; border-radius: 10px; overflow: hidden; object-fit: cover; background: #533483; display: grid; place-items: center; font-size: 1.6em; }
+    #avatarPreview img { width: 100%; height: 100%; object-fit: cover; }
+    #avatarFile { width: auto; max-width: 100%; padding: 6px; margin: 4px 0; }
     input, select { padding: 12px; margin: 8px 0; width: 100%; box-sizing: border-box; border: 1px solid #533483; border-radius: 5px; background: #1a1a2e; color: #fff; }
     
     button { width: 100%; padding: 12px; cursor: pointer; border: none; border-radius: 5px; font-weight: bold; transition: 0.3s; margin-top: 5px; }
@@ -37,6 +41,7 @@
       padding: 12px 15px; border-radius: 8px; display: flex; 
       justify-content: space-between; align-items: center;
     }
+    .player-seat { position: relative; }
     .dead { opacity: 0.5; background: #1a1a2e !important; text-decoration: line-through; }
     .speaking-dot {
       width: 10px; height: 10px; border-radius: 50%; background: #2ecc71;
@@ -87,35 +92,41 @@
     #returnLobbyBtn { display: none; max-width: 360px; margin: 12px auto 0; background: #e67e22; color: #fff; }
     .btn-speech { width: auto; padding: 10px 18px; margin: 6px 6px 0 0; background: #e94560; color: #fff; }
 
-    .container.in-game { max-width: 1080px; }
-    #players.player-ring {
-      position: relative; width: 100%; max-width: 900px; height: 500px;
-      margin: 12px auto 4px; padding: 0; list-style: none;
-      border-radius: 50%; isolation: isolate;
+    .container.in-game { max-width: 1260px; }
+    #gameBoard { display: block; }
+    #gameBoard.in-game {
+      display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px) minmax(0, 1fr);
+      grid-template-rows: repeat(var(--player-rows, 1), 168px); gap: 14px; align-items: center;
     }
-    #players.player-ring::before {
-      content: "🐺  討論桌"; position: absolute; z-index: 0;
-      left: 50%; top: 50%; transform: translate(-50%, -50%);
-      width: 34%; height: 38%; display: grid; place-items: center;
-      box-sizing: border-box; border: 2px solid rgba(116, 190, 153, .42);
-      border-radius: 50%; color: #b9dbc6; font-weight: bold; letter-spacing: .08em;
-      background: radial-gradient(ellipse, #23483e 0%, #18362f 68%, #142a29 100%);
-      box-shadow: 0 0 30px rgba(46, 204, 113, .12), inset 0 0 22px rgba(0, 0, 0, .28);
-    }
-    #players.player-ring > li {
-      position: absolute; z-index: 1; box-sizing: border-box; width: var(--seat-width, 130px);
-      min-height: 66px; margin: 0; padding: 8px 7px; border-radius: 13px;
-      display: flex; flex-direction: column; justify-content: center; gap: 5px;
-      text-align: center; background: linear-gradient(145deg, #173a62, #0f2948);
-      border: 1px solid #3b6286; box-shadow: 0 5px 14px rgba(0, 0, 0, .34);
+    #players.player-grid { display: contents; }
+    #players.player-grid > li {
+      position: relative; box-sizing: border-box; justify-self: center; align-self: center;
+      width: min(100%, 164px); aspect-ratio: 1 / 1; margin: 0; padding: 10px 8px 7px;
+      border-radius: 14px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 5px; text-align: center; overflow: hidden;
+      background: linear-gradient(145deg, #173a62, #0f2948); border: 1px solid #3b6286;
+      box-shadow: 0 5px 14px rgba(0, 0, 0, .34);
       transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
     }
-    #players.player-ring > li.dead { background: #202432 !important; }
-    #players.player-ring > li.is-turn-speaker {
-      outline: 2px solid #f1c40f; outline-offset: 3px;
+    #players.player-grid > li.dead { background: #202432 !important; }
+    .player-number {
+      position: absolute; top: 6px; left: 7px; z-index: 2; min-width: 22px; height: 22px;
+      display: grid; place-items: center; border-radius: 7px; background: #f1c40f; color: #1a1a2e;
+      font-weight: 900; font-size: .78em;
+    }
+    .avatar-frame {
+      position: relative; width: 68%; max-width: 96px; aspect-ratio: 1; flex: 0 0 auto;
+      border-radius: 11px; overflow: hidden; background: linear-gradient(145deg, #674ea7, #263d66);
+      display: grid; place-items: center; font-size: 2.5em;
+    }
+    .avatar-frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .player-caption { display: flex; align-items: center; justify-content: center; gap: 5px; width: 100%; min-width: 0; }
+    .player-caption .player-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .9em; }
+    #players.player-grid > li.is-turn-speaker {
+      outline: 2px solid #f1c40f; outline-offset: 2px;
       box-shadow: 0 0 16px rgba(241, 196, 15, .45), 0 5px 14px rgba(0, 0, 0, .34);
     }
-    #players.player-ring > li.is-speaking {
+    #players.player-grid > li.is-speaking {
       border-color: #2ecc71; background: linear-gradient(145deg, #18533f, #103b36);
       box-shadow: 0 0 10px #2ecc71, 0 0 24px rgba(46, 204, 113, .48), 0 5px 14px rgba(0, 0, 0, .34);
       animation: seat-speaking-pulse 1.15s ease-in-out infinite alternate;
@@ -124,22 +135,36 @@
       from { box-shadow: 0 0 7px #2ecc71, 0 0 15px rgba(46, 204, 113, .32), 0 5px 14px rgba(0, 0, 0, .34); }
       to { box-shadow: 0 0 13px #2ecc71, 0 0 27px rgba(46, 204, 113, .62), 0 5px 14px rgba(0, 0, 0, .34); }
     }
-    #players.player-ring .player-name-row { justify-content: center; min-width: 0; gap: 5px; }
-    #players.player-ring .player-name-row > span:last-child {
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .92em;
+    #players.player-grid .speaking-dot { width: 8px; height: 8px; }
+    #players.player-grid .action-group { justify-content: center; gap: 3px; }
+    #players.player-grid .action-btn { padding: 4px 6px; font-size: .72em; }
+    #gameLogPanel {
+      display: none; grid-column: 2; grid-row: 1 / span var(--player-rows, 1); align-self: start;
+      position: sticky; top: 12px; height: min(72vh, 560px);
+      min-height: 0; flex-direction: column; border: 1px solid #533483; border-radius: 14px;
+      background: linear-gradient(180deg, #10172a, #182039); box-shadow: inset 0 0 20px rgba(0,0,0,.2);
+      overflow: hidden;
     }
-    #players.player-ring .speaking-dot { width: 8px; height: 8px; }
-    #players.player-ring .action-group { justify-content: center; gap: 3px; }
-    #players.player-ring .action-btn { padding: 4px 6px; font-size: .72em; }
+    #gameBoard.in-game #gameLogPanel { display: flex; }
+    #gameLogTitle { margin: 0; padding: 12px 10px; color: #f1c40f; text-align: center; border-bottom: 1px solid #3b4561; }
+    #gameLog { min-height: 0; overflow-y: auto; margin: 0; padding: 8px; }
+    #gameLog li { display: block; margin: 0; padding: 7px 6px; border: 0; border-bottom: 1px solid rgba(255,255,255,.08); border-radius: 0; background: transparent; font-size: .82em; line-height: 1.4; overflow-wrap: anywhere; }
+    #gameLog .log-time { color: #8291ad; margin-right: 5px; font-size: .85em; }
+    #gameLog li.log-action { color: #7de0a9; }
+    #gameLog li.log-error { color: #ff8f9d; }
     #roundActions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 8px auto 16px; }
     #roundActions > button { margin: 0; }
     @media (max-width: 600px) {
       body { padding: 8px; }
       .container.in-game { padding: 12px 10px; }
-      #players.player-ring::before { width: 34%; height: 28%; font-size: .85em; }
-      #players.player-ring > li { min-height: 58px; padding: 6px 4px; }
-      #players.player-ring .player-name-row > span:last-child { font-size: .78em; }
-      #players.player-ring .action-btn { padding: 3px 4px; font-size: .65em; }
+      #gameBoard.in-game { grid-template-columns: minmax(0, 1fr) minmax(130px, .9fr) minmax(0, 1fr); grid-template-rows: repeat(var(--player-rows, 1), 144px); gap: 6px; }
+      #players.player-grid > li { width: min(100%, 136px); padding: 8px 4px 5px; }
+      .avatar-frame { width: 65%; max-width: 78px; font-size: 2em; }
+      .player-caption .player-name { font-size: .78em; }
+      #players.player-grid .action-btn { padding: 3px 4px; font-size: .62em; }
+      #gameLogTitle { padding: 8px 4px; font-size: .9em; }
+      #gameLog { padding: 4px; }
+      #gameLog li { padding: 5px 3px; font-size: .72em; }
     }
   </style>
 </head>
@@ -150,6 +175,10 @@
 
   <div class="room-controls" id="setupArea">
     <input id="userName" placeholder="輸入你的名字" />
+    <div class="avatar-picker">
+      <div id="avatarPreview" aria-label="頭像預覽">🐺</div>
+      <label>玩家頭像（可略過）<br /><input id="avatarFile" type="file" accept="image/*" /></label>
+    </div>
     <select id="playerLimit">
       <option value="5">5 人測試板</option>
       <option value="9" selected>9 人板 (狼王 預女獵 3民)</option>
@@ -238,7 +267,13 @@
   </div>
 
   <h3 id="playersHeading">玩家列表：</h3>
-  <ul id="players"></ul>
+  <div id="gameBoard">
+    <ul id="players"></ul>
+    <section id="gameLogPanel" aria-label="遊戲訊息紀錄">
+      <h3 id="gameLogTitle">📜 遊戲訊息</h3>
+      <ol id="gameLog" aria-live="polite"></ol>
+    </section>
+  </div>
   <div id="roundActions"></div>
   <div id="audio-container"></div>
 </div>
@@ -247,6 +282,8 @@
 <script>
   const socket = io();
   let currentRoom = "", myRole = "", myStream, witchKnowledgeId = null, canShoot = false, inPK = [];
+  let avatarData = null;
+  let avatarProcessing = Promise.resolve();
   let isSkillProcessing = false;
   let lastRoomState = null;
   const speakingPeers = new Set();
@@ -265,6 +302,82 @@
     wolf: "狼人", wolfking: "狼王", seer: "預言家", witch: "女巫",
     hunter: "獵人", villager: "村民", idiot: "白痴", knight: "騎士",
   };
+
+  async function prepareAvatar(file) {
+    if (!file || !file.type.startsWith("image/")) throw new Error("請選擇圖片檔案");
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const image = new Image();
+      image.src = objectUrl;
+      await image.decode();
+      const sourceSide = Math.min(image.naturalWidth, image.naturalHeight);
+      const sourceX = (image.naturalWidth - sourceSide) / 2;
+      const sourceY = (image.naturalHeight - sourceSide) / 2;
+      for (const size of [96, 80, 64]) {
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const context = canvas.getContext("2d");
+        context.drawImage(image, sourceX, sourceY, sourceSide, sourceSide, 0, 0, size, size);
+        for (const quality of [0.62, 0.48, 0.36]) {
+          const data = canvas.toDataURL("image/jpeg", quality);
+          if (data.length <= 6000) return data;
+        }
+      }
+      throw new Error("圖片太大，請選擇較小的圖片");
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
+
+  document.getElementById("avatarFile").addEventListener("change", async (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) {
+      avatarData = null;
+      avatarProcessing = Promise.resolve();
+      document.getElementById("avatarPreview").textContent = "🐺";
+      return;
+    }
+    avatarProcessing = prepareAvatar(file).then((data) => {
+      avatarData = data;
+      const preview = document.getElementById("avatarPreview");
+      preview.textContent = "";
+      const image = document.createElement("img");
+      image.src = data;
+      image.alt = "頭像預覽";
+      preview.appendChild(image);
+    }).catch((error) => {
+      avatarData = null;
+      event.target.value = "";
+      alert(error.message || "讀取圖片失敗");
+    });
+    await avatarProcessing;
+  });
+
+  function avatarPlaceholder(playerId) {
+    const icons = ["🐺", "🦊", "🐱", "🦉", "🐼", "🦁", "🐸", "🐻"];
+    const seed = [...String(playerId || "")].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+    return icons[seed % icons.length];
+  }
+
+  function addGameLog(message, kind = "info") {
+    const log = document.getElementById("gameLog");
+    if (!log || !currentRoom || !message) return;
+    const entry = document.createElement("li");
+    entry.className = kind === "error" ? "log-error" : kind === "action" ? "log-action" : "";
+    const time = document.createElement("span");
+    time.className = "log-time";
+    time.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    entry.append(time, document.createTextNode(String(message)));
+    log.appendChild(entry);
+    while (log.children.length > 100) log.firstElementChild.remove();
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function showGameMessage(message, kind = "info") {
+    document.getElementById("systemMsg").innerText = (kind === "error" ? "⚠️ " : "📣 ") + message;
+    addGameLog(message, kind);
+  }
 
   function playUiSound(kind = "click") {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -532,27 +645,6 @@
     });
   }
 
-  function layoutPlayerRing() {
-    const list = document.getElementById("players");
-    if (!list.classList.contains("player-ring")) return;
-    const seats = [...list.querySelectorAll(":scope > li[data-sid]")];
-    if (!seats.length) return;
-    const width = list.clientWidth;
-    const seatWidth = Math.min(154, Math.max(82, width * 0.18));
-    const height = Math.max(460, Math.min(680, 220 + width * 0.28));
-    list.style.height = height + "px";
-    list.style.setProperty("--seat-width", seatWidth + "px");
-    const radiusX = Math.max(0, (width - seatWidth) / 2 - 5);
-    const radiusY = Math.max(0, (height - 112) / 2 - 4);
-    seats.forEach((seat, index) => {
-      const angle = -Math.PI / 2 + (2 * Math.PI * index) / seats.length;
-      seat.style.left = (width / 2 + Math.cos(angle) * radiusX) + "px";
-      seat.style.top = (height / 2 + Math.sin(angle) * radiusY) + "px";
-      seat.style.transform = "translate(-50%, -50%)";
-    });
-  }
-  window.addEventListener("resize", layoutPlayerRing);
-
   peer.on('call', (call) => {
     if (!myStream || !allowedVoicePeerIds.has(call.peer)) {
       call.close();
@@ -568,16 +660,18 @@
 
   async function create() {
     if (!document.getElementById("userName").value) return alert("請輸入名字");
+    await avatarProcessing;
     await initMic();
-    socket.emit("createRoom", { name: document.getElementById("userName").value, boardType: document.getElementById("playerLimit").value, peerId: peer.id });
+    socket.emit("createRoom", { name: document.getElementById("userName").value, boardType: document.getElementById("playerLimit").value, peerId: peer.id, avatar: avatarData });
   }
 
   async function join() {
     const rid = document.getElementById("roomNumber").value.toUpperCase();
     if (!document.getElementById("userName").value || !rid) return alert("資訊不全");
+    await avatarProcessing;
     await initMic();
     currentRoom = rid;
-    socket.emit("joinRoom", { roomId: rid, name: document.getElementById("userName").value, peerId: peer.id });
+    socket.emit("joinRoom", { roomId: rid, name: document.getElementById("userName").value, peerId: peer.id, avatar: avatarData });
     startMicMonitor();
   }
 
@@ -600,8 +694,9 @@
       document.getElementById("myStatus").style.display = "none";
       const players = document.getElementById("players");
       players.innerHTML = "";
-      players.classList.remove("player-ring");
-      players.style.height = "";
+      players.classList.remove("player-grid");
+      document.getElementById("gameBoard").classList.remove("in-game");
+      document.getElementById("gameLog").innerHTML = "";
       document.querySelector(".container").classList.remove("in-game");
       document.getElementById("playersHeading").textContent = "玩家列表：";
       document.getElementById("roundActions").innerHTML = "";
@@ -664,11 +759,20 @@
 
   socket.on("update", (room) => {
     if (!currentRoom) return; 
+    const previousRoomState = lastRoomState;
     if (lastRoomState && (
       lastRoomState.phase !== room.phase ||
       lastRoomState.currentSpeechId !== room.currentSpeechId
     )) speakingPeers.clear();
     lastRoomState = room;
+    if (previousRoomState && previousRoomState.phase !== "WAIT" && room.phase === "WAIT") {
+      document.getElementById("gameLog").innerHTML = "";
+    } else if (!previousRoomState) {
+      addGameLog(`已加入房間 ${currentRoom}`);
+    } else if (previousRoomState.phase === "WAIT" && room.phase !== "WAIT") {
+      document.getElementById("gameLog").innerHTML = "";
+      addGameLog("遊戲開始", "action");
+    }
     syncVoicePolicy(room);
 
     if (room.phase !== "DAY" || room.daySubPhase !== "vote") {
@@ -722,7 +826,11 @@
         roleList.appendChild(item);
       });
     }
-    list.classList.toggle("player-ring", inGame);
+    list.classList.toggle("player-grid", inGame);
+    const gameBoard = document.getElementById("gameBoard");
+    gameBoard.classList.toggle("in-game", inGame);
+    const leftPlayerCount = Math.ceil(room.players.length / 2);
+    gameBoard.style.setProperty("--player-rows", Math.max(1, leftPlayerCount));
     document.querySelector(".container").classList.toggle("in-game", inGame);
     document.getElementById("playersHeading").textContent = inGame ? "玩家座位：" : "玩家列表：";
     document.getElementById("roundActions").innerHTML = "";
@@ -782,11 +890,16 @@
         inPK = [];
     }
 
-    room.players.forEach((p) => {
+    room.players.forEach((p, index) => {
       const li = document.createElement("li");
       li.setAttribute("data-sid", p.id);
       li.setAttribute("data-death-reason", p.deathReason || "");
       li.className = "player-seat";
+      if (inGame) {
+        const leftColumn = index < leftPlayerCount;
+        li.style.gridColumn = leftColumn ? "1" : "3";
+        li.style.gridRow = String(leftColumn ? index + 1 : index - leftPlayerCount + 1);
+      }
       if (!p.alive) li.classList.add("dead");
       if (inGame && room.phase === "DAY" && room.daySubPhase === "speech" && room.currentSpeechId === p.id) {
         li.classList.add("is-turn-speaker");
@@ -794,13 +907,32 @@
       }
       if (p.alive && speakingPeers.has(p.id)) li.classList.add("is-speaking");
 
+      const number = document.createElement("span");
+      number.className = "player-number";
+      number.textContent = String(index + 1);
+      li.appendChild(number);
+
+      const avatar = document.createElement("div");
+      avatar.className = "avatar-frame";
+      avatar.textContent = avatarPlaceholder(p.id);
+      if (p.avatar) {
+        const img = document.createElement("img");
+        img.src = p.avatar;
+        img.alt = `${p.name} 的頭像`;
+        img.onload = () => { avatar.textContent = ""; avatar.appendChild(img); };
+        img.onerror = () => img.remove();
+        avatar.appendChild(img);
+      }
+      li.appendChild(avatar);
+
       const nameRow = document.createElement("div");
-      nameRow.className = "player-name-row";
+      nameRow.className = "player-caption";
       const dot = document.createElement("span");
       dot.className = "speaking-dot";
       dot.title = "發言中";
       dot.style.display = (p.alive || (room.phase === "DAY" && p.deathReason === "voted")) && speakingPeers.has(p.id) ? "inline-block" : "none";
       const nameSpan = document.createElement("span");
+      nameSpan.className = "player-name";
       let label = p.name + (p.alive ? "" : " 💀") + (p.id === room.host ? " (房長)" : "");
       if (p.knightRevealed) label += " ⚔️[騎士]";
       nameSpan.textContent = label;
@@ -900,7 +1032,6 @@
       btn.onclick = () => socket.emit("finishVote", currentRoom);
       document.getElementById("roundActions").appendChild(btn);
     }
-    layoutPlayerRing();
   });
 
   socket.on("showFinalVotes", (detail) => {
@@ -912,6 +1043,9 @@
       tag.innerText = `🗳️ ${d.voterName} ➔ ${d.targetName}`;
       area.appendChild(tag);
     });
+    if (detail.length) {
+      addGameLog(`投票結果：${detail.map((d) => `${d.voterName} → ${d.targetName}`).join("、")}`);
+    }
     document.getElementById("voteCounter").style.display = "block";
     
     if (voteRevealInterval != null) clearInterval(voteRevealInterval);
@@ -937,6 +1071,7 @@
     canShoot = true;
     isSkillProcessing = true;
     document.getElementById("systemMsg").innerHTML = "<span style='color:gold;'>🔫 技能就緒！請選擇一名玩家擊斃。</span>";
+    addGameLog("獵人或狼王技能就緒，請選擇目標。", "action");
   });
 
   socket.on("seerResult", (isBad) => {
@@ -944,11 +1079,13 @@
     const text = isBad ? "👺 查驗結果：此玩家為【狼人陣營】" : "😇 查驗結果：此玩家為【好人陣營】";
     const color = isBad ? "#e94560" : "#2ecc71";
     document.getElementById("systemMsg").innerHTML = `<span style="color:${color}">${text}</span>`;
+    addGameLog(text, "action");
   });
 
   socket.on("pkMode", (cand) => { 
     inPK = cand; 
     document.getElementById("systemMsg").innerText = "⚖️ 進入 PK 輪，請候選人發言！";
+    addGameLog("進入 PK 輪，候選人請發言。", "action");
   });
 
   socket.on("role", (r) => { 
@@ -962,12 +1099,13 @@
     document.getElementById("info").style.background = "#f1c40f";
     document.getElementById("info").style.color = "#000";
     document.getElementById("info").innerText = `🎉 遊戲結束：${w} 獲勝！`;
+    addGameLog(`遊戲結束：${w} 獲勝。`, "action");
   });
 
-  socket.on("systemMsg", (m) => { document.getElementById("systemMsg").innerText = "📣 " + m; });
-  socket.on("wolfTargetLocked", ({ msg }) => { playUiSound("success"); document.getElementById("systemMsg").innerText = "📣 " + msg; });
-  socket.on("actionError", (msg) => { playUiSound("error"); document.getElementById("systemMsg").innerText = "⚠️ " + msg; });
-  socket.on("witchActionLocked", (msg) => { playUiSound("success"); document.getElementById("systemMsg").innerText = "🧙 " + msg; });
+  socket.on("systemMsg", (m) => showGameMessage(m));
+  socket.on("wolfTargetLocked", ({ msg }) => { playUiSound("success"); showGameMessage(msg, "action"); });
+  socket.on("actionError", (msg) => { playUiSound("error"); showGameMessage(msg, "error"); });
+  socket.on("witchActionLocked", (msg) => { playUiSound("success"); showGameMessage(msg, "action"); });
   socket.on("witchKnowledge", (id) => { witchKnowledgeId = id; });
 
   socket.on("peerSpeaking", ({ id, active }) => {
