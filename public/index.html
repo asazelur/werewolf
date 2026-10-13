@@ -1074,11 +1074,17 @@
     addGameLog("獵人或狼王技能就緒，請選擇目標。", "action");
   });
 
-  socket.on("seerResult", (isBad) => {
+  socket.on("seerResult", (isBad, targetId) => {
     playUiSound("success");
-    const text = isBad ? "👺 查驗結果：此玩家為【狼人陣營】" : "😇 查驗結果：此玩家為【好人陣營】";
+    const players = lastRoomState?.players || [];
+    const targetIndex = players.findIndex((player) => player.id === targetId);
+    const target = targetIndex >= 0 ? players[targetIndex] : null;
+    const identity = target ? `#${targetIndex + 1} ${target.name}` : "該玩家";
+    const text = isBad ? `👺 查驗結果：${identity} 是【狼人陣營】` : `😇 查驗結果：${identity} 是【好人陣營】`;
     const color = isBad ? "#e94560" : "#2ecc71";
-    document.getElementById("systemMsg").innerHTML = `<span style="color:${color}">${text}</span>`;
+    const systemMsg = document.getElementById("systemMsg");
+    systemMsg.textContent = text;
+    systemMsg.style.color = color;
     addGameLog(text, "action");
   });
 

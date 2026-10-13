@@ -576,7 +576,7 @@ io.on("connection", (socket) => {
       socket.emit("actionError", "請選擇一位存活的其他玩家。");
       return;
     }
-    socket.emit("seerResult", ["wolf", "wolfking"].includes(target.role));
+    socket.emit("seerResult", ["wolf", "wolfking"].includes(target.role), target.id);
   });
 
   socket.on("hunterAction", ({ roomId, targetId }) => {
