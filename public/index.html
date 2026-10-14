@@ -146,13 +146,13 @@
     #gameLogPanel {
       display: none; grid-column: 2; grid-row: 1 / span var(--player-rows, 1); align-self: start;
       position: sticky; top: 12px; height: min(72vh, 560px);
-      min-height: 0; flex-direction: column; border: 1px solid #533483; border-radius: 14px;
+      max-height: 100%; min-height: 0; flex-direction: column; border: 1px solid #533483; border-radius: 14px;
       background: linear-gradient(180deg, #10172a, #182039); box-shadow: inset 0 0 20px rgba(0,0,0,.2);
       overflow: hidden;
     }
     #gameBoard.in-game #gameLogPanel { display: flex; }
     #gameLogTitle { margin: 0; padding: 12px 10px; color: #f1c40f; text-align: center; border-bottom: 1px solid #3b4561; }
-    #gameLog { min-height: 0; overflow-y: auto; margin: 0; padding: 8px; }
+    #gameLog { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin: 0; padding: 8px; }
     #gameLog li { display: block; margin: 0; padding: 7px 6px; border: 0; border-bottom: 1px solid rgba(255,255,255,.08); border-radius: 0; background: transparent; font-size: .82em; line-height: 1.4; overflow-wrap: anywhere; }
     #gameLog .log-time { color: #8291ad; margin-right: 5px; font-size: .85em; }
     #gameLog li.log-action { color: #7de0a9; }
@@ -285,6 +285,7 @@
     </section>
   </div>
   <div id="roundActions"></div>
+  <audio id="nightBgm" src="/bgm/night-ambience.mp3" loop preload="auto" hidden></audio>
   <div id="audio-container"></div>
 </div>
 
@@ -304,8 +305,12 @@
   let micCtx = null, micAnalyser = null, micSource = null, micRaf = null;
   let micMonitorRunning = false, lastSpeakingSent = false;
   let uiAudioContext = null;
+  let nightBgmUnlocked = false;
+  let nightMusicWanted = false;
   const peer = new Peer(); 
   const audioContainer = document.getElementById("audio-container");
+  const nightBgm = document.getElementById("nightBgm");
+  nightBgm.volume = 0.2;
 
   const ROLE_LABELS = {
     wolf: "狼人", wolfking: "狼王", seer: "預言家", witch: "女巫",
@@ -425,7 +430,33 @@
     } catch (e) {}
   }
 
+  function setNightMusic(enabled) {
+    nightMusicWanted = enabled;
+    if (!enabled) {
+      nightBgm.pause();
+      nightBgm.currentTime = 0;
+      nightBgm.muted = true;
+      return;
+    }
+    if (!nightBgmUnlocked) return;
+    nightBgm.muted = false;
+    nightBgm.play().catch(() => {});
+  }
+
+  function unlockNightMusic() {
+    if (nightBgmUnlocked) return;
+    nightBgm.muted = true;
+    nightBgm.play().then(() => {
+      nightBgm.pause();
+      nightBgm.currentTime = 0;
+      nightBgmUnlocked = true;
+      nightBgm.muted = !nightMusicWanted;
+      if (nightMusicWanted) nightBgm.play().catch(() => {});
+    }).catch(() => {});
+  }
+
   document.addEventListener("click", (event) => {
+    unlockNightMusic();
     const button = event.target.closest && event.target.closest("button");
     if (button && !button.disabled) playUiSound("click");
   }, true);
@@ -784,6 +815,7 @@
       lastRoomState.currentSpeechId !== room.currentSpeechId
     )) speakingPeers.clear();
     lastRoomState = room;
+    setNightMusic(!room.gameOver && room.phase.startsWith("NIGHT_"));
     if (previousRoomState && previousRoomState.phase !== "WAIT" && room.phase === "WAIT") {
       document.getElementById("gameLog").innerHTML = "";
     } else if (!previousRoomState) {
