@@ -243,6 +243,7 @@
       <option value="5">5 人測試板</option>
       <option value="9" selected>9 人板 (狼王 預女獵 3民)</option>
       <option value="10">10 人板</option>
+      <option value="12_whitewolf_guard">12 人白狼王守衛板</option>
       <option value="12_standard">12 人標準板</option>
       <option value="12_knight">12 人騎士板</option>
       <option value="custom">自訂（房長選角，人數上限 99）</option>
@@ -284,6 +285,7 @@
         <option value="5">5 人測試</option>
         <option value="9">9 人</option>
         <option value="10">10 人</option>
+        <option value="12_whitewolf_guard">12 人白狼王守衛</option>
         <option value="12_standard">12 人標準</option>
         <option value="12_knight">12 人騎士</option>
       </select>
@@ -296,6 +298,7 @@
         <option value="5">5 人快節奏</option>
         <option value="9">9 人（同預設）</option>
         <option value="10">10 人</option>
+        <option value="12_whitewolf_guard">12 白狼王守衛板節奏</option>
         <option value="12_standard">12 標準長一點</option>
         <option value="12_knight">12 騎士板節奏</option>
       </select>
@@ -308,12 +311,14 @@
       <select id="addRoleSelect" style="width:calc(100% - 100px);display:inline-block;vertical-align:middle;">
         <option value="wolf">狼人</option>
         <option value="wolfking">狼王</option>
+        <option value="whitewolfking">白狼王</option>
         <option value="seer">預言家</option>
         <option value="witch">女巫</option>
         <option value="hunter">獵人</option>
         <option value="villager">村民</option>
         <option value="idiot">白痴</option>
         <option value="knight">騎士</option>
+        <option value="guard">守衛</option>
       </select>
       <button type="button" class="btn-inline" style="background:#2ecc71;color:#fff;width:auto" onclick="hostAddRole()">加入</button>
     </div>
@@ -818,6 +823,7 @@
     const list = document.getElementById("players");
     const info = document.getElementById("info");
     const inGame = room.phase !== "WAIT";
+    const me = room.players.find(p => p.id === socket.id);
     const voiceMode = document.getElementById("voiceMode");
     if (room.gameOver) {
       voiceMode.style.display = "block";
@@ -828,6 +834,10 @@
         voiceMode.textContent = room.canSpeak
           ? "🐺 狼人語音已開啟：只有狼人彼此聽得到"
           : "🔇 狼人討論中：你的麥克風已自動關閉";
+      } else if (room.phase === "NIGHT_GUARD") {
+        voiceMode.textContent = me && me.role === "guard"
+          ? "🛡️ 守衛行動中：選擇今晚要守護的玩家"
+          : "🔇 守衛行動中：其他玩家看不到守護目標";
       } else {
         voiceMode.textContent = "🔇 夜間行動中：所有玩家的麥克風已自動關閉";
       }
@@ -870,8 +880,6 @@
     document.getElementById("playersHeading").textContent = inGame ? "玩家座位：" : room.players.length ? "玩家身份牌（開始後翻牌）：" : "玩家列表：";
     document.getElementById("roundActions").innerHTML = "";
     list.innerHTML = "";
-    const me = room.players.find(p => p.id === socket.id);
-
     document.getElementById("setupArea").style.display = "none";
     document.getElementById("leaveBtn").style.display = "block";
     
@@ -998,7 +1006,12 @@
       group.className = "action-group";
 
       if (me && me.alive && !isSkillProcessing) {
-        if (room.phase === "NIGHT_WOLF" && ['wolf', 'wolfking'].includes(me.role) && p.id !== me.id && p.alive && !(room.wolfTeamIds || []).includes(p.id)) {
+        if (room.phase === "NIGHT_GUARD" && me.role === "guard" && !room.guardActionDone && p.alive) {
+          const btn = document.createElement("button"); btn.innerText = "🛡️ 守護"; btn.className = "action-btn btn-save";
+          btn.onclick = () => socket.emit("guardAction", { roomId: currentRoom, targetId: p.id });
+          group.appendChild(btn);
+        }
+        if (room.phase === "NIGHT_WOLF" && ['wolf', 'wolfking', 'whitewolfking'].includes(me.role) && p.id !== me.id && p.alive && !(room.wolfTeamIds || []).includes(p.id)) {
           const btn = document.createElement("button"); btn.innerText = "擊殺"; btn.className = "action-btn btn-kill";
           btn.onclick = () => socket.emit("wolfKill", { roomId: currentRoom, targetId: p.id });
           group.appendChild(btn);
@@ -1033,6 +1046,23 @@
             document.querySelectorAll('.btn-v-act').forEach(b => b.remove());
           };
           group.appendChild(btn);
+        }
+        if (
+          room.phase === "DAY" &&
+          room.daySubPhase === "speech" &&
+          me.role === "whitewolfking" &&
+          p.id !== me.id &&
+          p.alive
+        ) {
+          const wb = document.createElement("button");
+          wb.innerText = "💥自爆帶走";
+          wb.className = "action-btn btn-knight-charge btn-whitewolf-explode";
+          wb.title = "白狼王自爆並帶走一名玩家，隨即進入黑夜";
+          wb.onclick = () => {
+            if (!confirm(`確定自爆並帶走 ${p.name}？這會立刻結束白天。`)) return;
+            socket.emit("whiteWolfKingExplode", { roomId: currentRoom, targetId: p.id });
+          };
+          group.appendChild(wb);
         }
         if (
           room.phase === "DAY" &&
@@ -1085,6 +1115,13 @@
       btn.style.background = "#533483"; btn.style.color = "white";
       btn.onclick = () => socket.emit("finishVote", currentRoom);
       document.getElementById("roundActions").appendChild(btn);
+    }
+    if (room.phase === "NIGHT_GUARD" && me && me.alive && me.role === "guard" && !room.guardActionDone) {
+      const pass = document.createElement("button");
+      pass.className = "btn-speech";
+      pass.innerText = "今晚不守護";
+      pass.onclick = () => socket.emit("guardAction", { roomId: currentRoom, targetId: null });
+      document.getElementById("roundActions").appendChild(pass);
     }
   });
 
@@ -1162,6 +1199,7 @@
   socket.on("wolfTargetLocked", ({ msg }) => { playUiSound("success"); showGameMessage(msg, "action"); });
   socket.on("actionError", (msg) => { playUiSound("error"); showGameMessage(msg, "error"); });
   socket.on("witchActionLocked", (msg) => { playUiSound("success"); showGameMessage(msg, "action"); });
+  socket.on("guardActionLocked", (msg) => { playUiSound("success"); showGameMessage(msg, "action"); });
   socket.on("witchKnowledge", (id) => { witchKnowledgeId = id; });
 
   socket.on("peerSpeaking", ({ id, active }) => {

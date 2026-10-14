@@ -11,6 +11,7 @@
  */
 
 const STANDARD_NIGHT = [
+  { phase: "NIGHT_GUARD", seconds: 10, systemMsg: "守衛請守護一位玩家", skipIfNoRole: "guard" },
   { phase: "NIGHT_WOLF", seconds: 12, systemMsg: "狼人請殺人" },
   { phase: "NIGHT_SEER", seconds: 10, systemMsg: "預言家請驗人" },
   {
@@ -33,6 +34,7 @@ const BOARD_OVERRIDES = {
     enterNightDelayMs: 3000,
     afterExecutionDelayMs: 5000,
     nightSteps: [
+      { phase: "NIGHT_GUARD", seconds: 8, systemMsg: "守衛請守護一位玩家", skipIfNoRole: "guard" },
       { phase: "NIGHT_WOLF", seconds: 8, systemMsg: "【5人測試】狼人請殺人" },
       { phase: "NIGHT_SEER", seconds: 8, systemMsg: "預言家請驗人" },
       {
@@ -45,6 +47,7 @@ const BOARD_OVERRIDES = {
   },
   "10": {
     nightSteps: [
+      { phase: "NIGHT_GUARD", seconds: 10, systemMsg: "守衛請守護一位玩家", skipIfNoRole: "guard" },
       { phase: "NIGHT_WOLF", seconds: 10, systemMsg: "【10人】狼人請殺人" },
       { phase: "NIGHT_SEER", seconds: 10, systemMsg: "預言家請驗人" },
       {
@@ -55,10 +58,21 @@ const BOARD_OVERRIDES = {
       },
     ],
   },
+  "12_whitewolf_guard": {
+    enterNightDelayMs: 5000,
+    afterExecutionDelayMs: 10000,
+    nightSteps: [
+      { phase: "NIGHT_GUARD", seconds: 10, systemMsg: "守衛請守護一位玩家", skipIfNoRole: "guard" },
+      { phase: "NIGHT_WOLF", seconds: 15, systemMsg: "狼人請殺人" },
+      { phase: "NIGHT_SEER", seconds: 12, systemMsg: "預言家請驗人" },
+      { phase: "NIGHT_WITCH", seconds: 12, systemMsg: "女巫請用藥", sendWitchKnowledge: true },
+    ],
+  },
   "12_standard": {
     enterNightDelayMs: 5000,
     afterExecutionDelayMs: 10000,
     nightSteps: [
+      { phase: "NIGHT_GUARD", seconds: 10, systemMsg: "守衛請守護一位玩家", skipIfNoRole: "guard" },
       { phase: "NIGHT_WOLF", seconds: 15, systemMsg: "狼人請殺人" },
       { phase: "NIGHT_SEER", seconds: 12, systemMsg: "預言家請驗人" },
       {
@@ -73,6 +87,7 @@ const BOARD_OVERRIDES = {
     enterNightDelayMs: 4000,
     afterExecutionDelayMs: 8000,
     nightSteps: [
+      { phase: "NIGHT_GUARD", seconds: 10, systemMsg: "守衛請守護一位玩家", skipIfNoRole: "guard" },
       { phase: "NIGHT_WOLF", seconds: 14, systemMsg: "狼人請殺人" },
       { phase: "NIGHT_SEER", seconds: 10, systemMsg: "預言家請驗人" },
       {
@@ -86,6 +101,7 @@ const BOARD_OVERRIDES = {
 };
 
 const PHASE_DEFAULT_MSG = {
+  NIGHT_GUARD: "守衛請守護一位玩家",
   NIGHT_WOLF: "狼人請殺人",
   NIGHT_SEER: "預言家請驗人",
   NIGHT_WITCH: "女巫請用藥",

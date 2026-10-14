@@ -24,6 +24,11 @@ const PRESET_ROLES = {
     "villager",
     "villager",
   ],
+  "12_whitewolf_guard": [
+    "wolf", "wolf", "wolf", "whitewolfking",
+    "seer", "witch", "hunter", "guard",
+    "villager", "villager", "villager", "villager",
+  ],
   "12_standard": [
     "wolf",
     "wolf",
@@ -57,12 +62,14 @@ const PRESET_ROLES = {
 const ALLOWED_ROLES = new Set([
   "wolf",
   "wolfking",
+  "whitewolfking",
   "seer",
   "witch",
   "hunter",
   "villager",
   "idiot",
   "knight",
+  "guard",
 ]);
 
 const MAX_ROLES = 24;
@@ -100,7 +107,7 @@ function effectiveConfigRoleCount(room) {
 
 function attachVoicePolicy(payload, room, socketId) {
   const player = room.players.find((p) => p.id === socketId);
-  const isWolf = player && ["wolf", "wolfking"].includes(player.role);
+  const isWolf = player && ["wolf", "wolfking", "whitewolfking"].includes(player.role);
   const wolfPhase = room.phase === "NIGHT_WOLF";
   const nightPhase = String(room.phase || "").startsWith("NIGHT_");
   const gameOver = !!room.gameOver;
@@ -122,7 +129,7 @@ function attachVoicePolicy(payload, room, socketId) {
     : nightPhase
     ? canJoinWolfConversation
       ? room.players
-          .filter((p) => p.id !== socketId && p.alive && ["wolf", "wolfking"].includes(p.role))
+          .filter((p) => p.id !== socketId && p.alive && ["wolf", "wolfking", "whitewolfking"].includes(p.role))
           .map((p) => p.peerId)
           .filter(Boolean)
       : []
@@ -132,13 +139,13 @@ function attachVoicePolicy(payload, room, socketId) {
     : nightPhase
     ? canJoinWolfConversation
       ? room.players
-          .filter((p) => p.alive && ["wolf", "wolfking"].includes(p.role))
+          .filter((p) => p.alive && ["wolf", "wolfking", "whitewolfking"].includes(p.role))
           .map((p) => p.id)
       : []
     : room.players.map((p) => p.id);
   payload.wolfTeamIds = wolfPhase && isWolf && player.alive
     ? room.players
-        .filter((p) => p.id !== socketId && p.alive && ["wolf", "wolfking"].includes(p.role))
+        .filter((p) => p.id !== socketId && p.alive && ["wolf", "wolfking", "whitewolfking"].includes(p.role))
         .map((p) => p.id)
     : [];
   payload.players = room.players.map((p) => {
@@ -146,6 +153,9 @@ function attachVoicePolicy(payload, room, socketId) {
     return p.id === socketId || gameOver ? { ...publicPlayer, role: p.role } : publicPlayer;
   });
   payload.gameOver = gameOver;
+  payload.guardActionDone = !!(
+    player && player.role === "guard" && player.alive && room.guardActionDone
+  );
   if (gameOver) payload.gameWinner = room.gameWinner;
   return payload;
 }
@@ -160,6 +170,7 @@ function roomPayloadForSocket(room, socketId) {
     enterNightTimeout: _enterNightTimeout,
     execVoteTimeout: _execVoteTimeout,
     gameOverResetTimeout: _gameOverResetTimeout,
+    lastGuardTarget: _lastGuardTarget,
     ...clientRoom
   } = room;
   if (room.phase !== "WAIT" || isHost) {

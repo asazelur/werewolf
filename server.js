@@ -167,8 +167,8 @@ function checkGameOver(roomId) {
   if (room.gameOver) return true;
 
   const alivePlayers = room.players.filter(p => p.alive);
-  const wolves = alivePlayers.filter(p => ['wolf', 'wolfking'].includes(p.role));
-  const gods = alivePlayers.filter(p => ['seer', 'witch', 'hunter', 'idiot', 'knight'].includes(p.role));
+  const wolves = alivePlayers.filter(p => ['wolf', 'wolfking', 'whitewolfking'].includes(p.role));
+  const gods = alivePlayers.filter(p => ['seer', 'witch', 'hunter', 'idiot', 'knight', 'guard'].includes(p.role));
   const villagers = alivePlayers.filter(p => p.role === 'villager');
 
   let winner = null;
@@ -232,7 +232,8 @@ function startNightFlow(roomId) {
   const room = rooms[roomId];
   if (!room) return;
 
-  nightData[roomId] = { killed: null, usedAntidote: false, usedPoison: null };
+  nightData[roomId] = { killed: null, usedAntidote: false, usedPoison: null, protected: null };
+  room.guardActionDone = false;
   runNightStep(roomId, 0);
 }
 
@@ -246,7 +247,7 @@ function processDaybreak(roomId) {
   
   if (data.usedPoison) {
     const target = room.players.find(p => p.id === data.usedPoison);
-    if (target) {
+    if (target && target.alive) {
       target.alive = false;
       target.deathReason = "poisoned";
       killedNames.push(target.name);
@@ -254,7 +255,9 @@ function processDaybreak(roomId) {
     }
   }
 
-  if (data.killed && !data.usedAntidote) {
+  const protectedWolfTarget = data.killed && data.protected === data.killed;
+  const guardAndAntidoteConflict = protectedWolfTarget && data.usedAntidote;
+  if (data.killed && ((!data.usedAntidote && !protectedWolfTarget) || guardAndAntidoteConflict)) {
     const target = room.players.find(p => p.id === data.killed);
     if (target && target.alive) {
       target.alive = false; 
@@ -403,10 +406,10 @@ io.on("connection", (socket) => {
     const nightPhase = String(room.phase || "").startsWith("NIGHT_");
     if (nightPhase) {
       if (room.phase !== "NIGHT_WOLF") return;
-      const isWolf = ["wolf", "wolfking"].includes(speaker.role);
+      const isWolf = ["wolf", "wolfking", "whitewolfking"].includes(speaker.role);
       if (!isWolf || (isActive && !speaker.alive)) return;
       room.players
-        .filter((p) => ["wolf", "wolfking"].includes(p.role))
+        .filter((p) => ["wolf", "wolfking", "whitewolfking"].includes(p.role))
         .forEach((p) => io.to(p.id).emit("peerSpeaking", { id: socket.id, active: isActive }));
       return;
     }
@@ -469,6 +472,8 @@ io.on("connection", (socket) => {
     pkPlayers[id] = [];
     room.gameOver = false;
     delete room.gameWinner;
+    room.lastGuardTarget = null;
+    room.guardActionDone = false;
 
     shuffle(roles);
     room.players.forEach((p, i) => {
@@ -487,7 +492,8 @@ io.on("connection", (socket) => {
       }
       io.to(p.id).emit("role", p.role);
     });
-    delete room.pendingKnightNight;
+    delete room.pendingNightAfterShot;
+    room.guardActionDone = false;
 
     startNightFlow(id);
   });
@@ -509,7 +515,8 @@ io.on("connection", (socket) => {
       delete p.knightSkillUsed;
       delete p.knightRevealed;
     });
-    delete room.pendingKnightNight;
+    delete room.pendingNightAfterShot;
+    delete room.lastGuardTarget;
     clearDaySpeech(room);
     pkPlayers[id] = [];
     votes[id] = {};
@@ -518,13 +525,46 @@ io.on("connection", (socket) => {
     io.to(id).emit("systemMsg", "房長已返回房間大廳，可以重新開始遊戲。");
   });
 
+  socket.on("guardAction", ({ roomId, targetId }) => {
+    const id = roomId && String(roomId).toUpperCase();
+    const room = id && rooms[id];
+    const data = id && nightData[id];
+    const guard = room && room.players.find((p) => p.id === socket.id);
+    if (!room || room.phase !== "NIGHT_GUARD" || !data) {
+      socket.emit("actionError", "現在不是守衛守護階段。");
+      return;
+    }
+    if (!guard || !guard.alive || guard.role !== "guard") {
+      socket.emit("actionError", "只有存活的守衛可以選擇守護目標。");
+      return;
+    }
+    if (room.guardActionDone) {
+      socket.emit("actionError", "你今晚已經選擇守護目標。");
+      return;
+    }
+    const target = targetId ? room.players.find((p) => p.id === targetId) : null;
+    if (targetId && (!target || !target.alive)) {
+      socket.emit("actionError", "請選擇一位存活玩家，或選擇不守護。");
+      return;
+    }
+    if (targetId && targetId === room.lastGuardTarget) {
+      socket.emit("actionError", "守衛不能連續兩晚守護同一位玩家。");
+      return;
+    }
+    data.protected = targetId || null;
+    room.lastGuardTarget = targetId || null;
+    room.guardActionDone = true;
+    socket.emit("guardActionLocked", target ? `今晚守護：${target.name}` : "今晚不選擇守護目標。");
+    broadcastRoomUpdate(id);
+  });
+
   socket.on("wolfKill", ({ roomId, targetId }) => {
     const id = roomId && String(roomId).toUpperCase();
     const room = rooms[id];
     if (!room || !nightData[id] || room.phase !== "NIGHT_WOLF") return;
     const killer = room.players.find((p) => p.id === socket.id);
     const target = room.players.find((p) => p.id === targetId);
-    if (!killer || !killer.alive || !["wolf", "wolfking"].includes(killer.role)) {
+    if (!killer || !killer.alive || !["wolf", "wolfking", "whitewolfking"].includes(killer.role)) {
       socket.emit("actionError", "只有存活的狼人可以在狼人階段擊殺。");
       return;
     }
@@ -532,7 +572,7 @@ io.on("connection", (socket) => {
       socket.emit("actionError", "請選擇一位存活的其他玩家。");
       return;
     }
-    if (["wolf", "wolfking"].includes(target.role)) {
+    if (["wolf", "wolfking", "whitewolfking"].includes(target.role)) {
       socket.emit("actionError", "狼人不能選擇狼人隊友作為擊殺目標。");
       return;
     }
@@ -542,7 +582,7 @@ io.on("connection", (socket) => {
     const lockedTarget = room.players.find((p) => p.id === lockedId);
     const message = `狼人刀已鎖定：${lockedTarget ? lockedTarget.name : "未知"}`;
     room.players
-      .filter((p) => ["wolf", "wolfking"].includes(p.role))
+      .filter((p) => ["wolf", "wolfking", "whitewolfking"].includes(p.role))
       .forEach((p) => {
         io.to(p.id).emit("wolfTargetLocked", { targetId: lockedId, msg: message });
       });
@@ -565,7 +605,7 @@ io.on("connection", (socket) => {
       socket.emit("actionError", "請選擇一位存活的其他玩家。");
       return;
     }
-    socket.emit("seerResult", ["wolf", "wolfking"].includes(target.role), target.id);
+    socket.emit("seerResult", ["wolf", "wolfking", "whitewolfking"].includes(target.role), target.id);
   });
 
   socket.on("hunterAction", ({ roomId, targetId }) => {
@@ -578,12 +618,46 @@ io.on("connection", (socket) => {
       const roleName = (shooter && shooter.role === 'wolfking') ? "狼王" : "獵人";
       io.to(id).emit("systemMsg", `${roleName}最後一搏，帶走了：${target.name}`);
       io.to(id).emit("skillProcessing", false);
-      const pendingKnightNight = !!room.pendingKnightNight;
-      room.pendingKnightNight = false;
+      const pendingNightAfterShot = !!room.pendingNightAfterShot;
+      room.pendingNightAfterShot = false;
       broadcastRoomUpdate(id);
       if (checkGameOver(id)) return;
-      if (pendingKnightNight) enterNight(id);
+      if (pendingNightAfterShot) enterNight(id);
     }
+  });
+
+  socket.on("whiteWolfKingExplode", ({ roomId, targetId }) => {
+    const id = roomId && String(roomId).toUpperCase();
+    const room = id && rooms[id];
+    if (!room || room.phase !== "DAY" || room.daySubPhase !== "speech") return;
+    const whiteWolfKing = room.players.find((p) => p.id === socket.id);
+    const target = room.players.find((p) => p.id === targetId);
+    if (!whiteWolfKing || !whiteWolfKing.alive || whiteWolfKing.role !== "whitewolfking") {
+      socket.emit("actionError", "只有存活的白狼王可以白天自爆。");
+      return;
+    }
+    if (!target || !target.alive || target.id === whiteWolfKing.id) {
+      socket.emit("actionError", "請選擇一位存活的其他玩家作為帶走目標。");
+      return;
+    }
+
+    whiteWolfKing.alive = false;
+    whiteWolfKing.deathReason = "whiteWolfKingExplode";
+    target.alive = false;
+    target.deathReason = "whiteWolfKingShot";
+    clearRoomTimers(id);
+    clearDaySpeech(room);
+    votes[id] = {};
+    pkPlayers[id] = [];
+    io.to(id).emit("systemMsg", `💥 白狼王 ${whiteWolfKing.name} 自爆，帶走了 ${target.name}！`);
+    broadcastRoomUpdate(id);
+    if (target.role === "hunter") {
+      room.pendingNightAfterShot = true;
+      io.to(id).emit("skillProcessing", true);
+      io.to(target.id).emit("hunterCanShoot", true);
+      return;
+    }
+    if (!checkGameOver(id)) startNightFlow(id);
   });
 
   socket.on("knightCharge", ({ roomId, targetId }) => {
@@ -616,7 +690,7 @@ io.on("connection", (socket) => {
     knight.knightSkillUsed = true;
     knight.knightRevealed = true;
 
-    const isWolf = ["wolf", "wolfking"].includes(target.role);
+    const isWolf = ["wolf", "wolfking", "whitewolfking"].includes(target.role);
 
     if (isWolf) {
       target.alive = false;
@@ -628,7 +702,7 @@ io.on("connection", (socket) => {
       broadcastRoomUpdate(id);
       if (target.role === "wolfking") {
         if (checkGameOver(id)) return;
-        room.pendingKnightNight = true;
+        room.pendingNightAfterShot = true;
         io.to(id).emit("skillProcessing", true);
         io.to(target.id).emit("hunterCanShoot", true);
         return;
@@ -701,7 +775,7 @@ io.on("connection", (socket) => {
     }
     data.usedAntidote = true;
     witch.hasAntidote = false;
-    socket.emit("witchActionLocked", "解藥已使用，狼刀目標將獲救。");
+    socket.emit("witchActionLocked", "解藥已使用，狼刀與守衛守護效果將於天亮時結算。");
     broadcastRoomUpdate(id);
   });
 
