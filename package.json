@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "test:e2e:last-words": "node scripts/e2e-last-words.js",
     "test:e2e:full": "node scripts/e2e-full-night-vote.js",
     "test:e2e:lobby": "node scripts/e2e-five-ngrok.js",
     "test:9p": "node scripts/test-9p.js",
