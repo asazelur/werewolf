@@ -5,8 +5,42 @@
   <title>🐺 Web 狼人殺 - 專業語音版</title>
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <style>
-    body { font-family: "Microsoft JhengHei", sans-serif; padding: 20px; background-color: #1a1a2e; color: #fff; }
-    .container { max-width: 600px; margin: auto; background: #16213e; padding: 25px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); border: 1px solid #0f3460; }
+    body { position: relative; isolation: isolate; font-family: "Microsoft JhengHei", sans-serif; padding: 20px; background-color: #0e1424; color: #fff; transition: background-color 1.2s ease; }
+    body::before, body::after {
+      content: ""; position: fixed; inset: -4%; z-index: -1; pointer-events: none;
+      transition: opacity 1.4s ease; will-change: opacity, background-position;
+    }
+    body::before {
+      opacity: .82;
+      background:
+        radial-gradient(ellipse at 18% 20%, rgba(95, 137, 104, .34), transparent 46%),
+        radial-gradient(ellipse at 82% 82%, rgba(180, 125, 65, .22), transparent 44%),
+        linear-gradient(145deg, #172b31 0%, #182335 48%, #272338 100%);
+      animation: forest-drift 32s ease-in-out infinite alternate;
+    }
+    body::after {
+      opacity: 0;
+      background:
+        radial-gradient(circle at 78% 17%, rgba(226, 232, 255, .18) 0 1px, transparent 2px),
+        radial-gradient(circle at 22% 37%, rgba(226, 232, 255, .2) 0 1px, transparent 2px),
+        radial-gradient(circle at 57% 72%, rgba(226, 232, 255, .16) 0 1px, transparent 2px),
+        radial-gradient(ellipse at 76% 13%, rgba(175, 190, 255, .2), transparent 34%),
+        radial-gradient(ellipse at 12% 88%, rgba(52, 118, 116, .2), transparent 45%),
+        linear-gradient(145deg, #0b1428 0%, #111b35 52%, #211b36 100%);
+      background-size: auto, auto, auto, 100% 100%, 100% 100%, 100% 100%;
+      animation: night-drift 38s ease-in-out infinite alternate;
+    }
+    body.scene-night::before { opacity: 0; }
+    body.scene-night::after { opacity: 1; }
+    body.scene-day::before { opacity: 1; }
+    body.scene-day::after { opacity: 0; }
+    body.scene-ended::before { opacity: .28; }
+    body.scene-ended::after { opacity: .62; }
+    @keyframes forest-drift { from { background-position: 0% 0%, 100% 100%, 0% 0%; } to { background-position: 8% 4%, 94% 92%, 0% 0%; } }
+    @keyframes night-drift { from { background-position: 0 0, 0 0, 0 0, 0% 0%, 0% 0%, 0 0; } to { background-position: 0 0, 0 0, 0 0, -2% 2%, 3% -2%, 0 0; } }
+    .container { max-width: 600px; margin: auto; background: linear-gradient(155deg, rgba(22, 33, 62, .96), rgba(18, 28, 50, .94)); padding: 25px; border-radius: 15px; box-shadow: 0 8px 30px rgba(0,0,0,.42); border: 1px solid rgba(91, 126, 160, .62); transition: background 1s ease, border-color 1s ease, box-shadow 1s ease; }
+    body.scene-night .container { background: linear-gradient(155deg, rgba(18, 29, 55, .96), rgba(23, 25, 49, .94)); border-color: rgba(117, 137, 191, .52); box-shadow: 0 8px 36px rgba(4, 8, 24, .6), 0 0 28px rgba(94, 117, 190, .08); }
+    body.scene-day .container { background: linear-gradient(155deg, rgba(30, 47, 61, .96), rgba(37, 39, 58, .94)); border-color: rgba(159, 151, 111, .62); }
     h1 { text-align: center; color: #e94560; text-shadow: 0 0 10px rgba(233, 69, 96, 0.5); }
     
     .room-controls { background: #0f3460; padding: 15px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #533483; }
@@ -131,6 +165,11 @@
       outline: 2px solid #f1c40f; outline-offset: 2px;
       box-shadow: 0 0 16px rgba(241, 196, 15, .45), 0 5px 14px rgba(0, 0, 0, .34);
     }
+    #players.player-grid > li.is-turn-speaker:not(.is-speaking) { animation: speaker-turn-glow 1.9s ease-in-out infinite alternate; }
+    @keyframes speaker-turn-glow {
+      from { box-shadow: 0 0 8px rgba(241,196,15,.28), 0 5px 14px rgba(0,0,0,.34); }
+      to { box-shadow: 0 0 22px rgba(241,196,15,.68), 0 5px 14px rgba(0,0,0,.34); }
+    }
     #players.player-grid > li.is-speaking {
       border-color: #2ecc71; background: linear-gradient(145deg, #18533f, #103b36);
       box-shadow: 0 0 10px #2ecc71, 0 0 24px rgba(46, 204, 113, .48), 0 5px 14px rgba(0, 0, 0, .34);
@@ -159,6 +198,15 @@
     #gameLog li.log-error { color: #ff8f9d; }
     #roundActions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 8px auto 16px; }
     #roundActions > button { margin: 0; }
+    #info.phase-transition { animation: phase-arrival .72s ease-out; }
+    @keyframes phase-arrival {
+      0% { opacity: .45; transform: translateY(5px); }
+      55% { opacity: 1; box-shadow: 0 0 22px rgba(241,196,15,.24); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
+    }
     @media (max-width: 600px) {
       body { padding: 8px; }
       .container.in-game { padding: 12px 10px; }
@@ -307,6 +355,7 @@
   let uiAudioContext = null;
   let nightBgmUnlocked = false;
   let nightMusicWanted = false;
+  let phaseTransitionTimeout = null;
   const peer = new Peer(); 
   const audioContainer = document.getElementById("audio-container");
   const nightBgm = document.getElementById("nightBgm");
@@ -810,12 +859,15 @@
   socket.on("update", (room) => {
     if (!currentRoom) return; 
     const previousRoomState = lastRoomState;
+    const phaseChanged = !!previousRoomState && previousRoomState.phase !== room.phase;
     if (lastRoomState && (
       lastRoomState.phase !== room.phase ||
       lastRoomState.currentSpeechId !== room.currentSpeechId
     )) speakingPeers.clear();
     lastRoomState = room;
     setNightMusic(!room.gameOver && room.phase.startsWith("NIGHT_"));
+    document.body.classList.remove("scene-night", "scene-day", "scene-ended");
+    document.body.classList.add(room.gameOver ? "scene-ended" : room.phase.startsWith("NIGHT_") ? "scene-night" : room.phase === "DAY" ? "scene-day" : "scene-lobby");
     if (previousRoomState && previousRoomState.phase !== "WAIT" && room.phase === "WAIT") {
       document.getElementById("gameLog").innerHTML = "";
     } else if (!previousRoomState) {
@@ -921,6 +973,13 @@
     }
 
     info.innerText = "房號：" + currentRoom + " | 階段：" + room.phase;
+    if (phaseChanged) {
+      info.classList.remove("phase-transition");
+      void info.offsetWidth;
+      info.classList.add("phase-transition");
+      if (phaseTransitionTimeout) clearTimeout(phaseTransitionTimeout);
+      phaseTransitionTimeout = setTimeout(() => info.classList.remove("phase-transition"), 760);
+    }
 
     const speechEl = document.getElementById("speechBanner");
     if (room.phase === "DAY" && room.daySubPhase === "speech") {
