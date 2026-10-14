@@ -24,7 +24,7 @@ const STANDARD_NIGHT = [
 
 const DEFAULT_FLOW = {
   enterNightDelayMs: 4000,
-  afterExecutionDelayMs: 8000,
+  lastWordsSeconds: 30,
   nightSteps: STANDARD_NIGHT,
 };
 
@@ -32,7 +32,6 @@ const DEFAULT_FLOW = {
 const BOARD_OVERRIDES = {
   "5": {
     enterNightDelayMs: 3000,
-    afterExecutionDelayMs: 5000,
     nightSteps: [
       { phase: "NIGHT_GUARD", seconds: 8, systemMsg: "守衛請守護一位玩家", skipIfNoRole: "guard" },
       { phase: "NIGHT_WOLF", seconds: 8, systemMsg: "【5人測試】狼人請殺人" },
@@ -60,7 +59,6 @@ const BOARD_OVERRIDES = {
   },
   "12_whitewolf_guard": {
     enterNightDelayMs: 5000,
-    afterExecutionDelayMs: 10000,
     nightSteps: [
       { phase: "NIGHT_GUARD", seconds: 10, systemMsg: "守衛請守護一位玩家", skipIfNoRole: "guard" },
       { phase: "NIGHT_WOLF", seconds: 15, systemMsg: "狼人請殺人" },
@@ -70,7 +68,6 @@ const BOARD_OVERRIDES = {
   },
   "12_standard": {
     enterNightDelayMs: 5000,
-    afterExecutionDelayMs: 10000,
     nightSteps: [
       { phase: "NIGHT_GUARD", seconds: 10, systemMsg: "守衛請守護一位玩家", skipIfNoRole: "guard" },
       { phase: "NIGHT_WOLF", seconds: 15, systemMsg: "狼人請殺人" },
@@ -85,7 +82,6 @@ const BOARD_OVERRIDES = {
   },
   "12_knight": {
     enterNightDelayMs: 4000,
-    afterExecutionDelayMs: 8000,
     nightSteps: [
       { phase: "NIGHT_GUARD", seconds: 10, systemMsg: "守衛請守護一位玩家", skipIfNoRole: "guard" },
       { phase: "NIGHT_WOLF", seconds: 14, systemMsg: "狼人請殺人" },
@@ -112,8 +108,7 @@ function getBoardFlow(boardType) {
   if (!o) return { ...DEFAULT_FLOW, nightSteps: [...DEFAULT_FLOW.nightSteps] };
   return {
     enterNightDelayMs: o.enterNightDelayMs ?? DEFAULT_FLOW.enterNightDelayMs,
-    afterExecutionDelayMs:
-      o.afterExecutionDelayMs ?? DEFAULT_FLOW.afterExecutionDelayMs,
+    lastWordsSeconds: o.lastWordsSeconds ?? DEFAULT_FLOW.lastWordsSeconds,
     nightSteps: o.nightSteps
       ? o.nightSteps.map((s) => ({ ...s }))
       : [...DEFAULT_FLOW.nightSteps],

@@ -56,6 +56,7 @@ function clearDaySpeech(room) {
   delete room.speechIndex;
   delete room.daySubPhase;
   delete room.currentSpeechId;
+  delete room.lastWordsPlayerId;
 }
 
 /** 略過已死亡發言者，回傳目前索引是否仍有效 */
@@ -290,6 +291,7 @@ function enterNight(id) {
   const room = rooms[id];
   if (!room) return;
   clearDaySpeech(room);
+  room.phase = "NIGHT_TRANSITION";
   votes[id] = {}; 
   pkPlayers[id] = []; 
   broadcastRoomUpdate(id);
@@ -306,6 +308,28 @@ function enterNight(id) {
       startNightFlow(id);
     }, delay);
   }
+}
+
+function startLastWords(room, roomId, player) {
+  clearDaySpeech(room);
+  room.phase = "DAY";
+  room.daySubPhase = "lastWords";
+  room.lastWordsPlayerId = player.id;
+  const seconds = getBoardFlow(room.nightFlowKey).lastWordsSeconds;
+  io.to(roomId).emit("systemMsg", `🕯️ ${player.name} 出局，開始遺言（${seconds} 秒）。`);
+  broadcastRoomUpdate(roomId);
+  countdown(roomId, seconds, () => finishLastWords(roomId));
+}
+
+function finishLastWords(roomId) {
+  const room = rooms[roomId];
+  if (!room || room.phase !== "DAY" || room.daySubPhase !== "lastWords") return;
+  if (room.nightPhaseInterval) {
+    clearInterval(room.nightPhaseInterval);
+    delete room.nightPhaseInterval;
+  }
+  io.to(roomId).emit("systemMsg", "遺言結束，準備進入夜晚。");
+  enterNight(roomId);
 }
 
 // 統一處理玩家離開邏輯
@@ -414,8 +438,9 @@ io.on("connection", (socket) => {
       return;
     }
     if (room.phase === "DAY") {
-      const isVotedOut = !speaker.alive && speaker.deathReason === "voted";
-      if (!speaker.alive && !isVotedOut) return;
+      const isLastWords = room.daySubPhase === "lastWords";
+      if (isLastWords && room.lastWordsPlayerId !== socket.id) return;
+      if (!isLastWords && !speaker.alive) return;
       if (
         speaker.alive &&
         room.daySubPhase === "speech" &&
@@ -474,6 +499,7 @@ io.on("connection", (socket) => {
     delete room.gameWinner;
     room.lastGuardTarget = null;
     room.guardActionDone = false;
+    delete room.pendingLastWordsPlayerId;
 
     shuffle(roles);
     room.players.forEach((p, i) => {
@@ -517,6 +543,7 @@ io.on("connection", (socket) => {
     });
     delete room.pendingNightAfterShot;
     delete room.lastGuardTarget;
+    delete room.pendingLastWordsPlayerId;
     clearDaySpeech(room);
     pkPlayers[id] = [];
     votes[id] = {};
@@ -620,9 +647,15 @@ io.on("connection", (socket) => {
       io.to(id).emit("skillProcessing", false);
       const pendingNightAfterShot = !!room.pendingNightAfterShot;
       room.pendingNightAfterShot = false;
+      const lastWordsPlayerId = room.pendingLastWordsPlayerId;
+      delete room.pendingLastWordsPlayerId;
       broadcastRoomUpdate(id);
       if (checkGameOver(id)) return;
       if (pendingNightAfterShot) enterNight(id);
+      else if (lastWordsPlayerId) {
+        const lastWordsPlayer = room.players.find((p) => p.id === lastWordsPlayerId);
+        if (lastWordsPlayer) startLastWords(room, id, lastWordsPlayer);
+      }
     }
   });
 
@@ -756,6 +789,14 @@ io.on("connection", (socket) => {
     broadcastRoomUpdate(id);
   });
 
+  socket.on("finishLastWords", ({ roomId }) => {
+    const id = roomId && String(roomId).toUpperCase();
+    const room = id && rooms[id];
+    if (!room || room.phase !== "DAY" || room.daySubPhase !== "lastWords") return;
+    if (room.host !== socket.id && room.lastWordsPlayerId !== socket.id) return;
+    finishLastWords(id);
+  });
+
   socket.on("witchSave", ({ roomId }) => {
     const id = roomId && String(roomId).toUpperCase();
     const room = id && rooms[id];
@@ -876,25 +917,15 @@ io.on("connection", (socket) => {
             target.deathReason = "voted";
             io.to(id).emit("systemMsg", `投票結果：${target.name} 被處決了！`);
             if (target.role === 'hunter' || target.role === 'wolfking') {
+                room.pendingLastWordsPlayerId = target.id;
                 io.to(id).emit("skillProcessing", true);
                 io.to(target.id).emit("hunterCanShoot", true);
                 return;
             }
+            startLastWords(room, id, target);
+            return;
         }
-        broadcastRoomUpdate(id);
-        const execDelay = getBoardFlow(room.nightFlowKey).afterExecutionDelayMs;
-        const sec = Math.round(execDelay / 1000);
-        io.to(id).emit("systemMsg", `📣 處決完成，${sec} 秒後進入夜晚...`);
-        if (room.execVoteTimeout) {
-          clearTimeout(room.execVoteTimeout);
-          delete room.execVoteTimeout;
-        }
-        room.execVoteTimeout = setTimeout(() => {
-          delete room.execVoteTimeout;
-          const r = rooms[id];
-          if (!r || r.phase === "WAIT") return;
-          enterNight(id);
-        }, execDelay);
+        enterNight(id);
     }
   });
 

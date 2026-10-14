@@ -841,6 +841,11 @@
       } else {
         voiceMode.textContent = "🔇 夜間行動中：所有玩家的麥克風已自動關閉";
       }
+    } else if (room.phase === "DAY" && room.daySubPhase === "lastWords") {
+      voiceMode.style.display = "block";
+      voiceMode.textContent = room.canSpeak
+        ? "🕯️ 遺言時間：你可以發言"
+        : "🔇 遺言時間：只有出局玩家可以發言";
     } else if (room.phase === "DAY" && room.daySubPhase === "speech") {
       voiceMode.style.display = "block";
       const currentSpeaker = room.players.find((p) => p.id === room.currentSpeechId);
@@ -922,7 +927,14 @@
     }
 
     const speechEl = document.getElementById("speechBanner");
-    if (room.phase === "DAY" && room.daySubPhase === "speech") {
+    if (room.phase === "DAY" && room.daySubPhase === "lastWords") {
+      speechEl.style.display = "block";
+      const lastWordsPlayer = room.players.find((p) => p.id === room.lastWordsPlayerId);
+      speechEl.innerHTML =
+        "🕯️ <strong>遺言階段</strong> — 請 <strong>" +
+        (lastWordsPlayer ? lastWordsPlayer.name : "出局玩家") +
+        "</strong> 發言（限時 30 秒）";
+    } else if (room.phase === "DAY" && room.daySubPhase === "speech") {
       speechEl.style.display = "block";
       const cur = room.players.find((p) => p.id === room.currentSpeechId);
       speechEl.innerHTML =
@@ -1108,6 +1120,18 @@
         sb.onclick = () => socket.emit("nextSpeech", { roomId: currentRoom });
         document.getElementById("roundActions").appendChild(sb);
       }
+    }
+
+    if (
+      room.phase === "DAY" &&
+      room.daySubPhase === "lastWords" &&
+      (room.host === socket.id || room.lastWordsPlayerId === socket.id)
+    ) {
+      const btn = document.createElement("button");
+      btn.className = "btn-speech";
+      btn.innerText = room.lastWordsPlayerId === socket.id ? "✓ 結束遺言" : "⏭ 房長略過遺言";
+      btn.onclick = () => socket.emit("finishLastWords", { roomId: currentRoom });
+      document.getElementById("roundActions").appendChild(btn);
     }
 
     if (room.phase === "DAY" && room.daySubPhase === "vote" && room.host === socket.id) {

@@ -112,17 +112,18 @@ function attachVoicePolicy(payload, room, socketId) {
   const nightPhase = String(room.phase || "").startsWith("NIGHT_");
   const gameOver = !!room.gameOver;
   const daySpeechPhase = room.phase === "DAY" && room.daySubPhase === "speech";
-  const votedOutSpeaker = !!(
-    player && !player.alive && player.deathReason === "voted" && room.phase === "DAY"
-  );
+  const lastWordsPhase = room.phase === "DAY" && room.daySubPhase === "lastWords";
+  const isLastWordsSpeaker = !!(player && player.id === room.lastWordsPlayerId);
   const isCurrentSpeaker = !!(player && player.alive && room.currentSpeechId === socketId);
   payload.canSpeak = gameOver
     ? true
     : nightPhase
       ? !!(wolfPhase && isWolf && player.alive)
-      : player && !player.alive
-        ? votedOutSpeaker
-        : !daySpeechPhase || isCurrentSpeaker;
+      : room.phase === "DAY"
+        ? lastWordsPhase
+          ? isLastWordsSpeaker
+          : player && player.alive && (!daySpeechPhase || isCurrentSpeaker)
+        : !!(player && player.alive);
   const canJoinWolfConversation = !!(wolfPhase && isWolf && player.alive);
   payload.voicePeerIds = gameOver
     ? room.players.filter((p) => p.id !== socketId).map((p) => p.peerId).filter(Boolean)
@@ -171,6 +172,7 @@ function roomPayloadForSocket(room, socketId) {
     execVoteTimeout: _execVoteTimeout,
     gameOverResetTimeout: _gameOverResetTimeout,
     lastGuardTarget: _lastGuardTarget,
+    pendingLastWordsPlayerId: _pendingLastWordsPlayerId,
     ...clientRoom
   } = room;
   if (room.phase !== "WAIT" || isHost) {
