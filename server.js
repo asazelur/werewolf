@@ -20,16 +20,6 @@ let nightData = {};
 let votes = {};     
 let pkPlayers = {}; 
 
-const ALLOWED_AVATARS = new Set([
-  "animal-wolf", "animal-fox", "animal-cat", "animal-owl",
-  "animal-panda", "animal-lion", "animal-frog", "animal-bear",
-  ...Array.from({ length: 12 }, (_, index) => `character-${String(index + 1).padStart(2, "0")}`),
-]);
-
-function sanitizeAvatar(avatar) {
-  return typeof avatar === "string" && ALLOWED_AVATARS.has(avatar) ? avatar : "animal-wolf";
-}
-
 function broadcastRoomUpdate(roomId) {
   const room = rooms[roomId];
   if (!room) return;
@@ -345,7 +335,7 @@ function handlePlayerExit(socket) {
 }
 
 io.on("connection", (socket) => {
-  socket.on("createRoom", ({ name, boardType, peerId, avatar }) => {
+  socket.on("createRoom", ({ name, boardType, peerId }) => {
     const isCustom = boardType === "custom";
     if (!isCustom && !PRESET_ROLES[boardType]) {
       return socket.emit("error", "無效的板子類型");
@@ -363,7 +353,7 @@ io.on("connection", (socket) => {
       nightFlowKey: isCustom ? "default" : boardType,
       maxPlayers,
     };
-    rooms[roomId].players.push({ id: socket.id, name: name.trim(), alive: true, role: null, peerId, avatar: sanitizeAvatar(avatar) });
+    rooms[roomId].players.push({ id: socket.id, name: name.trim(), alive: true, role: null, peerId });
     socket.join(roomId);
     socket.emit("roomCreated", roomId);
     broadcastRoomUpdate(roomId);
@@ -436,13 +426,13 @@ io.on("connection", (socket) => {
     io.to(id).emit("peerSpeaking", { id: socket.id, active: isActive });
   });
 
-  socket.on("joinRoom", ({ roomId, name, peerId, avatar }) => {
+  socket.on("joinRoom", ({ roomId, name, peerId }) => {
     const id = roomId.toUpperCase();
     const room = rooms[id];
     if (!room || room.phase !== "WAIT") return socket.emit("error", "無法加入！");
     if (room.players.length >= room.maxPlayers) return socket.emit("error", "房間已滿！");
 
-    room.players.push({ id: socket.id, name: name.trim(), alive: true, role: null, peerId, avatar: sanitizeAvatar(avatar) });
+    room.players.push({ id: socket.id, name: name.trim(), alive: true, role: null, peerId });
     socket.join(id);
     socket.to(id).emit("user-connected", peerId);
     broadcastRoomUpdate(id);

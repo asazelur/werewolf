@@ -44,15 +44,6 @@
     h1 { text-align: center; color: #e94560; text-shadow: 0 0 10px rgba(233, 69, 96, 0.5); }
     
     .room-controls { background: #0f3460; padding: 15px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #533483; }
-    .avatar-picker { display: flex; align-items: flex-start; gap: 12px; margin: 12px 0 16px; color: #bdc3c7; font-size: .9em; }
-    #avatarPreview { width: 58px; height: 58px; flex: 0 0 58px; border-radius: 10px; overflow: hidden; background: #533483; display: grid; place-items: center; font-size: 1.7em; border: 2px solid #f1c40f; }
-    #avatarPreview img { width: 100%; height: 100%; object-fit: cover; }
-    .avatar-choice-area { min-width: 0; flex: 1; }
-    .avatar-choices { display: grid; grid-template-columns: repeat(5, minmax(42px, 1fr)); gap: 7px; margin-top: 8px; }
-    .avatar-choice { width: 100%; aspect-ratio: 1; margin: 0; padding: 3px; display: grid; place-items: center; overflow: hidden; background: #1a1a2e; border: 2px solid #533483; border-radius: 9px; font-size: 1.6em; }
-    .avatar-choice img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 5px; }
-    .avatar-choice.selected { border-color: #f1c40f; box-shadow: 0 0 0 2px rgba(241, 196, 15, .22); }
-    .avatar-choice:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
     input, select { padding: 12px; margin: 8px 0; width: 100%; box-sizing: border-box; border: 1px solid #533483; border-radius: 5px; background: #1a1a2e; color: #fff; }
     
     button { width: 100%; padding: 12px; cursor: pointer; border: none; border-radius: 5px; font-weight: bold; transition: 0.3s; margin-top: 5px; }
@@ -68,12 +59,6 @@
     #systemMsg { color: #f1c40f; font-weight: bold; text-align: center; min-height: 24px; margin-bottom: 10px; font-size: 1.1em; }
     #voiceMode { display: none; text-align: center; color: #bdc3c7; margin: 4px 0 10px; font-size: .9em; }
     
-    #myStatus { 
-      margin-top: 10px; padding: 15px; border: 2px dashed #2ecc71; 
-      border-radius: 10px; background: rgba(46, 204, 113, 0.1); display: none; text-align: center;
-    }
-    #roleName { font-size: 1.5em; font-weight: bold; color: #2ecc71; }
-
     ul { list-style: none; padding: 0; }
     li { 
       background: #0f3460; border: 1px solid #16213e; margin-bottom: 8px; 
@@ -147,18 +132,43 @@
       box-shadow: 0 5px 14px rgba(0, 0, 0, .34);
       transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
     }
+    #players.lobby-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+    #players.lobby-card-grid > li {
+      position: relative; box-sizing: border-box; justify-self: center; width: min(100%, 164px); aspect-ratio: 1;
+      margin: 0; padding: 10px 8px 7px; border-radius: 14px; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 5px; text-align: center;
+      background: linear-gradient(145deg, #11151e, #08090d); border: 1px solid #6e5e3a;
+      box-shadow: 0 5px 14px rgba(0,0,0,.34);
+    }
     #players.player-grid > li.dead { background: #202432 !important; }
     .player-number {
       position: absolute; top: 6px; left: 7px; z-index: 2; min-width: 22px; height: 22px;
       display: grid; place-items: center; border-radius: 7px; background: #f1c40f; color: #1a1a2e;
       font-weight: 900; font-size: .78em;
     }
-    .avatar-frame {
-      position: relative; width: 68%; max-width: 96px; aspect-ratio: 1; flex: 0 0 auto;
-      border-radius: 11px; overflow: hidden; background: linear-gradient(145deg, #674ea7, #263d66);
-      display: grid; place-items: center; font-size: 2.5em;
+    .role-card {
+      position: relative; isolation: isolate; width: 70%; max-width: 102px; height: 116px; flex: 0 0 auto;
+      border-radius: 10px; overflow: hidden; display: grid; place-items: center;
+      border: 2px solid #9d824e; box-shadow: 0 5px 14px rgba(0,0,0,.55), inset 0 0 0 2px rgba(255,255,255,.06);
     }
-    .avatar-frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .role-card-back {
+      color: #c9b16f;
+      background:
+        radial-gradient(ellipse at center, rgba(85,70,49,.38), transparent 58%),
+        repeating-linear-gradient(135deg, rgba(201,177,111,.08) 0 1px, transparent 1px 7px),
+        linear-gradient(145deg, #0d1016, #030405 65%, #17131b);
+    }
+    .role-card-back::before { content: ""; position: absolute; inset: 6px; z-index: -1; border: 1px solid rgba(201,177,111,.56); border-radius: 6px; }
+    .card-back-sigil { font-size: 2.6em; line-height: 1; text-shadow: 0 0 16px rgba(224,194,117,.55); }
+    .role-card-front { background: #17141c; border-color: #d2b36e; }
+    .role-card-art { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; object-fit: cover; }
+    .role-card-label { position: absolute; right: 0; bottom: 0; left: 0; padding: 17px 3px 5px; color: #fff4d2; background: linear-gradient(transparent, rgba(5,7,12,.96)); font-size: .82em; font-weight: 900; letter-spacing: .08em; text-shadow: 0 1px 3px #000; }
+    .role-card-reveal { animation: role-card-flip .72s cubic-bezier(.2,.72,.24,1) both; }
+    @keyframes role-card-flip {
+      0% { transform: perspective(500px) rotateY(-82deg) scale(.86); opacity: .35; }
+      64% { transform: perspective(500px) rotateY(10deg) scale(1.04); opacity: 1; }
+      100% { transform: perspective(500px) rotateY(0) scale(1); opacity: 1; }
+    }
     .player-caption { display: flex; align-items: center; justify-content: center; gap: 5px; width: 100%; min-width: 0; }
     .player-caption .player-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .9em; }
     #players.player-grid > li.is-turn-speaker {
@@ -210,11 +220,10 @@
     @media (max-width: 600px) {
       body { padding: 8px; }
       .container.in-game { padding: 12px 10px; }
-      .avatar-picker { flex-direction: column; }
-      .avatar-choices { grid-template-columns: repeat(5, minmax(0, 1fr)); }
       #gameBoard.in-game { grid-template-columns: minmax(0, 1fr) minmax(130px, .9fr) minmax(0, 1fr); grid-template-rows: repeat(var(--player-rows, 1), 144px); gap: 6px; }
       #players.player-grid > li { width: min(100%, 136px); padding: 8px 4px 5px; }
-      .avatar-frame { width: 65%; max-width: 78px; font-size: 2em; }
+      .role-card { width: 68%; max-width: 82px; height: 96px; }
+      .card-back-sigil { font-size: 2.2em; }
       .player-caption .player-name { font-size: .78em; }
       #players.player-grid .action-btn { padding: 3px 4px; font-size: .62em; }
       #gameLogTitle { padding: 8px 4px; font-size: .9em; }
@@ -230,13 +239,6 @@
 
   <div class="room-controls" id="setupArea">
     <input id="userName" placeholder="輸入你的名字" />
-    <div class="avatar-picker">
-      <div id="avatarPreview" aria-label="頭像預覽">🐺</div>
-      <div class="avatar-choice-area">
-        <strong>選擇你的玩家頭像</strong>
-        <div id="avatarChoices" class="avatar-choices" role="group" aria-label="選擇玩家頭像"></div>
-      </div>
-    </div>
     <select id="playerLimit">
       <option value="5">5 人測試板</option>
       <option value="9" selected>9 人板 (狼王 預女獵 3民)</option>
@@ -267,11 +269,6 @@
   <div id="voteCounter" style="display:none; text-align:center; color:#f1c40f; margin-bottom:10px;">
     已投票：<span id="votedNum">0</span> / <span id="totalNum">0</span>
     <div id="voteDetailArea"></div> 
-  </div>
-
-  <div id="myStatus">
-    <div>你的身分是</div>
-    <div id="roleName">?</div>
   </div>
 
   <button id="leaveBtn" class="btn-leave" onclick="leaveRoom()">🚪 退出房間</button>
@@ -340,8 +337,7 @@
 <script src="/socket.io/socket.io.js"></script>
 <script>
   const socket = io();
-  let currentRoom = "", myRole = "", myStream, witchKnowledgeId = null, canShoot = false, inPK = [];
-  let avatarData = "animal-wolf";
+  let currentRoom = "", myStream, witchKnowledgeId = null, canShoot = false, inPK = [];
   let isSkillProcessing = false;
   let lastRoomState = null;
   const speakingPeers = new Set();
@@ -366,74 +362,11 @@
     hunter: "獵人", villager: "村民", idiot: "白痴", knight: "騎士",
   };
 
-  const ANIMAL_AVATARS = [
-    { id: "animal-wolf", label: "狼人", emoji: "🐺" },
-    { id: "animal-fox", label: "狐狸", emoji: "🦊" },
-    { id: "animal-cat", label: "貓咪", emoji: "🐱" },
-    { id: "animal-owl", label: "貓頭鷹", emoji: "🦉" },
-    { id: "animal-panda", label: "熊貓", emoji: "🐼" },
-    { id: "animal-lion", label: "獅子", emoji: "🦁" },
-    { id: "animal-frog", label: "青蛙", emoji: "🐸" },
-    { id: "animal-bear", label: "熊", emoji: "🐻" },
-  ];
-  const CHARACTER_AVATARS = Array.from({ length: 12 }, (_, index) => {
-    const id = `character-${String(index + 1).padStart(2, "0")}`;
-    return { id, label: `角色 ${String(index + 1).padStart(2, "0")}`, src: `/avatars/${id}.jpg` };
-  });
-  const AVATAR_CHOICES = [...ANIMAL_AVATARS, ...CHARACTER_AVATARS];
-
-  function avatarPlaceholder(playerId) {
-    const icons = ANIMAL_AVATARS.map((choice) => choice.emoji);
-    const seed = [...String(playerId || "")].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
-    return icons[seed % icons.length];
-  }
-
-  function setAvatarFace(element, choice, alt = "玩家頭像") {
-    element.replaceChildren();
-    if (choice.src) {
-      const image = document.createElement("img");
-      image.src = choice.src;
-      image.alt = alt;
-      element.appendChild(image);
-    } else {
-      element.textContent = choice.emoji;
-    }
-  }
-
-  function renderAvatarChoices() {
-    const list = document.getElementById("avatarChoices");
-    for (const choice of AVATAR_CHOICES) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "avatar-choice";
-      button.title = choice.label;
-      button.setAttribute("aria-label", choice.label);
-      button.setAttribute("aria-pressed", String(choice.id === avatarData));
-      if (choice.id === avatarData) button.classList.add("selected");
-      if (choice.src) {
-        const image = document.createElement("img");
-        image.src = choice.src;
-        image.alt = "";
-        image.loading = "lazy";
-        button.appendChild(image);
-      } else {
-        button.textContent = choice.emoji;
-      }
-      button.addEventListener("click", () => {
-        avatarData = choice.id;
-        setAvatarFace(document.getElementById("avatarPreview"), choice, `${choice.label}頭像`);
-        list.querySelectorAll(".avatar-choice").forEach((item) => {
-          const selected = item === button;
-          item.classList.toggle("selected", selected);
-          item.setAttribute("aria-pressed", String(selected));
-        });
-      });
-      list.appendChild(button);
-    }
-    setAvatarFace(document.getElementById("avatarPreview"), AVATAR_CHOICES[0], "狼人頭像");
-  }
-
-  renderAvatarChoices();
+  const ROLE_CARD_ART = {
+    wolf: "character-12.jpg", wolfking: "character-09.jpg", seer: "character-07.jpg",
+    witch: "character-10.jpg", hunter: "character-05.jpg", villager: "character-08.jpg",
+    idiot: "character-04.jpg", knight: "character-11.jpg",
+  };
 
   function addGameLog(message, kind = "info") {
     const log = document.getElementById("gameLog");
@@ -762,7 +695,7 @@
   async function create() {
     if (!document.getElementById("userName").value) return alert("請輸入名字");
     await initMic();
-    socket.emit("createRoom", { name: document.getElementById("userName").value, boardType: document.getElementById("playerLimit").value, peerId: peer.id, avatar: avatarData });
+    socket.emit("createRoom", { name: document.getElementById("userName").value, boardType: document.getElementById("playerLimit").value, peerId: peer.id });
   }
 
   async function join() {
@@ -770,7 +703,7 @@
     if (!document.getElementById("userName").value || !rid) return alert("資訊不全");
     await initMic();
     currentRoom = rid;
-    socket.emit("joinRoom", { roomId: rid, name: document.getElementById("userName").value, peerId: peer.id, avatar: avatarData });
+    socket.emit("joinRoom", { roomId: rid, name: document.getElementById("userName").value, peerId: peer.id });
     startMicMonitor();
   }
 
@@ -790,7 +723,6 @@
       document.getElementById("setupArea").style.display = "block";
       document.getElementById("startBtn").style.display = "none";
       document.getElementById("leaveBtn").style.display = "none";
-      document.getElementById("myStatus").style.display = "none";
       const players = document.getElementById("players");
       players.innerHTML = "";
       players.classList.remove("player-grid");
@@ -848,8 +780,6 @@
     canShoot = false;
     isSkillProcessing = false;
     witchKnowledgeId = null;
-    myRole = "";
-    document.getElementById("myStatus").style.display = "none";
     const speechEl = document.getElementById("speechBanner");
     speechEl.style.display = "none";
     speechEl.innerHTML = "";
@@ -930,12 +860,13 @@
       });
     }
     list.classList.toggle("player-grid", inGame);
+    list.classList.toggle("lobby-card-grid", !inGame && room.players.length > 0);
     const gameBoard = document.getElementById("gameBoard");
     gameBoard.classList.toggle("in-game", inGame);
     const leftPlayerCount = Math.ceil(room.players.length / 2);
     gameBoard.style.setProperty("--player-rows", Math.max(1, leftPlayerCount));
     document.querySelector(".container").classList.toggle("in-game", inGame);
-    document.getElementById("playersHeading").textContent = inGame ? "玩家座位：" : "玩家列表：";
+    document.getElementById("playersHeading").textContent = inGame ? "玩家座位：" : room.players.length ? "玩家身份牌（開始後翻牌）：" : "玩家列表：";
     document.getElementById("roundActions").innerHTML = "";
     list.innerHTML = "";
     const me = room.players.find(p => p.id === socket.id);
@@ -1022,13 +953,30 @@
       number.textContent = String(index + 1);
       li.appendChild(number);
 
-      const avatar = document.createElement("div");
-      avatar.className = "avatar-frame";
-      const avatarChoice = AVATAR_CHOICES.find((choice) => choice.id === p.avatar) || {
-        id: "fallback", label: "預設動物頭像", emoji: avatarPlaceholder(p.id),
-      };
-      setAvatarFace(avatar, avatarChoice, `${p.name} 的頭像`);
-      li.appendChild(avatar);
+      const card = document.createElement("div");
+      const showRole = !!p.role && (p.id === socket.id || room.gameOver);
+      const previousPlayer = previousRoomState && previousRoomState.players.find((player) => player.id === p.id);
+      const wasShowingRole = !!(previousPlayer && previousPlayer.role && (previousPlayer.id === socket.id || previousRoomState.gameOver));
+      card.className = `role-card ${showRole ? "role-card-front" : "role-card-back"}`;
+      card.setAttribute("aria-label", showRole ? `${p.name}的職業：${ROLE_LABELS[p.role] || p.role}` : `${p.name}的身份牌背面`);
+      if (showRole) {
+        const art = document.createElement("img");
+        art.className = "role-card-art";
+        art.src = `/role-art/${ROLE_CARD_ART[p.role] || "character-08.jpg"}`;
+        art.alt = `${ROLE_LABELS[p.role] || p.role}插畫`;
+        const roleLabel = document.createElement("span");
+        roleLabel.className = "role-card-label";
+        roleLabel.textContent = ROLE_LABELS[p.role] || p.role;
+        card.append(art, roleLabel);
+        if (previousRoomState && !wasShowingRole) card.classList.add("role-card-reveal");
+      } else {
+        const sigil = document.createElement("span");
+        sigil.className = "card-back-sigil";
+        sigil.setAttribute("aria-hidden", "true");
+        sigil.textContent = "✦";
+        card.appendChild(sigil);
+      }
+      li.appendChild(card);
 
       const nameRow = document.createElement("div");
       nameRow.className = "player-caption";
@@ -1199,11 +1147,7 @@
     addGameLog("進入 PK 輪，候選人請發言。", "action");
   });
 
-  socket.on("role", (r) => { 
-    myRole = r; 
-    document.getElementById("myStatus").style.display = "block";
-    document.getElementById("roleName").innerText = ROLE_LABELS[r] || r; 
-  });
+  socket.on("role", () => playUiSound("success"));
 
   socket.on("gameOver", (w) => {
     playUiSound("success");
