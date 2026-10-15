@@ -115,8 +115,20 @@ function attachVoicePolicy(payload, room, socketId) {
   const lastWordsPhase = room.phase === "DAY" && room.daySubPhase === "lastWords";
   const isLastWordsSpeaker = !!(player && player.id === room.lastWordsPlayerId);
   const isCurrentSpeaker = !!(player && player.alive && room.currentSpeechId === socketId);
+  const sheriffSpeechPhase = ["SHERIFF_SPEECH", "SHERIFF_RUNOFF_SPEECH"].includes(room.phase);
+  const sheriffSignupPhase = room.phase === "SHERIFF_SIGNUP";
+  const sheriffVotePhase = ["SHERIFF_VOTE", "SHERIFF_RUNOFF_VOTE"].includes(room.phase);
+  const sheriffHandoffPhase = room.phase === "SHERIFF_HANDOFF";
+  const sheriffSpeakerId = room.sheriffSpeechOrder && room.sheriffSpeechOrder[room.sheriffSpeechIndex];
+  const canSpeakInSheriffPhase = sheriffSpeechPhase
+    ? sheriffSpeakerId === socketId
+    : sheriffHandoffPhase
+      ? room.pendingSheriffId === socketId
+      : !(sheriffSignupPhase || sheriffVotePhase);
   payload.canSpeak = gameOver
     ? true
+    : !canSpeakInSheriffPhase
+      ? false
     : nightPhase
       ? !!(wolfPhase && isWolf && player.alive)
       : room.phase === "DAY"
@@ -137,6 +149,10 @@ function attachVoicePolicy(payload, room, socketId) {
     : room.players.filter((p) => p.id !== socketId).map((p) => p.peerId).filter(Boolean);
   payload.visibleSpeakingIds = gameOver
     ? room.players.map((p) => p.id)
+    : sheriffSpeechPhase
+      ? sheriffSpeakerId ? [sheriffSpeakerId] : []
+      : sheriffHandoffPhase
+        ? [room.pendingSheriffId]
     : nightPhase
     ? canJoinWolfConversation
       ? room.players
@@ -149,6 +165,11 @@ function attachVoicePolicy(payload, room, socketId) {
         .filter((p) => p.id !== socketId && p.alive && ["wolf", "wolfking", "whitewolfking"].includes(p.role))
         .map((p) => p.id)
     : [];
+  payload.isSheriffCandidate = !!(room.sheriffCandidateIds || []).includes(socketId);
+  payload.sheriffCanVote = !!(room.sheriffEligibleVoterIds || []).includes(socketId);
+  payload.sheriffHasVoted = Object.prototype.hasOwnProperty.call(room.sheriffVotes || {}, socketId);
+  payload.sheriffVoteCount = Object.keys(room.sheriffVotes || {}).length;
+  payload.sheriffEligibleVoterCount = (room.sheriffEligibleVoterIds || []).length;
   payload.players = room.players.map((p) => {
     const { peerId: _peerId, role: _role, ...publicPlayer } = p;
     return p.id === socketId || gameOver ? { ...publicPlayer, role: p.role } : publicPlayer;
@@ -173,6 +194,10 @@ function roomPayloadForSocket(room, socketId) {
     gameOverResetTimeout: _gameOverResetTimeout,
     lastGuardTarget: _lastGuardTarget,
     pendingLastWordsPlayerId: _pendingLastWordsPlayerId,
+    sheriffVotes: _sheriffVotes,
+    sheriffEligibleVoterIds: _sheriffEligibleVoterIds,
+    sheriffHandoffCallback: _sheriffHandoffCallback,
+    sheriffHandoffReturnPhase: _sheriffHandoffReturnPhase,
     ...clientRoom
   } = room;
   if (room.phase !== "WAIT" || isHost) {

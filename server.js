@@ -238,10 +238,199 @@ function startNightFlow(roomId) {
   runNightStep(roomId, 0);
 }
 
+function continueAfterDaybreak(roomId, resultMsg, newlyDeadPlayers) {
+  const room = rooms[roomId];
+  if (!room) return;
+  if (checkGameOver(roomId)) {
+    broadcastRoomUpdate(roomId);
+    io.to(roomId).emit("systemMsg", `天亮了！${resultMsg}`);
+    return;
+  }
+  const deathSkillPlayer = newlyDeadPlayers.find((p) => ["hunter", "wolfking"].includes(p.role));
+  if (deathSkillPlayer) {
+    if (room.skipDayAfterWolfExplode) {
+      room.pendingNightAfterShot = true;
+      delete room.skipDayAfterWolfExplode;
+    }
+    io.to(roomId).emit("skillProcessing", true);
+    io.to(deathSkillPlayer.id).emit("hunterCanShoot", true);
+    initDaySpeech(room, roomId, null);
+    broadcastRoomUpdate(roomId);
+    io.to(roomId).emit("systemMsg", `天亮了！${resultMsg}`);
+    return;
+  }
+  if (room.skipDayAfterWolfExplode) {
+    delete room.skipDayAfterWolfExplode;
+    enterNight(roomId);
+    return;
+  }
+  initDaySpeech(room, roomId, null);
+  broadcastRoomUpdate(roomId);
+  io.to(roomId).emit("systemMsg", `天亮了！${resultMsg}`);
+}
+
+function resumeAfterBadge(roomId) {
+  const room = rooms[roomId];
+  if (!room) return;
+  const callback = room.sheriffHandoffCallback;
+  if (room.sheriffHandoffReturnPhase) room.phase = room.sheriffHandoffReturnPhase;
+  delete room.sheriffHandoffCallback;
+  delete room.sheriffHandoffReturnPhase;
+  delete room.pendingSheriffId;
+  if (callback) callback();
+}
+
+function beginSheriffHandoff(room, roomId, sheriff, callback) {
+  if (!room.sheriffEnabled || !sheriff || room.sheriffId !== sheriff.id) {
+    callback();
+    return false;
+  }
+  room.sheriffHandoffReturnPhase = room.phase;
+  room.phase = "SHERIFF_HANDOFF";
+  room.pendingSheriffId = sheriff.id;
+  room.sheriffHandoffCallback = callback;
+  io.to(roomId).emit("systemMsg", `警長 ${sheriff.name} 出局，請移交警徽或撕毀警徽。`);
+  broadcastRoomUpdate(roomId);
+  countdown(roomId, 20, () => resolveSheriffBadge(roomId, null));
+  return true;
+}
+
+function finishSheriffElection(roomId, sheriffId) {
+  const room = rooms[roomId];
+  if (!room) return;
+  if (room.nightPhaseInterval) {
+    clearInterval(room.nightPhaseInterval);
+    delete room.nightPhaseInterval;
+  }
+  room.sheriffElectionDone = true;
+  room.sheriffId = sheriffId || null;
+  room.phase = "SHERIFF_RESULT";
+  room.sheriffCandidateIds = [];
+  room.sheriffVotingCandidateIds = [];
+  room.sheriffVotes = {};
+  room.sheriffSpeechOrder = [];
+  room.sheriffSpeechIndex = 0;
+  const selected = room.players.find((player) => player.id === room.sheriffId);
+  io.to(roomId).emit("systemMsg", selected ? `👮 ${selected.name} 當選警長，白天投票權重為 1.5 票。` : "本局無人當選警長，繼續公布昨夜結果。", "action");
+  broadcastRoomUpdate(roomId);
+  processDaybreak(roomId);
+}
+
+function startSheriffSignup(roomId) {
+  const room = rooms[roomId];
+  if (!room || room.sheriffElectionDone) return;
+  room.phase = "SHERIFF_SIGNUP";
+  room.sheriffCandidateIds = [];
+  io.to(roomId).emit("systemMsg", "首夜結束，開始警長競選：想競選的玩家請按「上警」。");
+  broadcastRoomUpdate(roomId);
+  countdown(roomId, 20, () => startSheriffSpeeches(roomId, false));
+}
+
+function startSheriffSpeeches(roomId, runoff) {
+  const room = rooms[roomId];
+  if (!room) return;
+  if (room.nightPhaseInterval) {
+    clearInterval(room.nightPhaseInterval);
+    delete room.nightPhaseInterval;
+  }
+  const candidates = runoff ? room.sheriffVotingCandidateIds : room.sheriffCandidateIds;
+  const candidateSet = new Set(candidates);
+  const aliveCandidates = room.players.filter((player) => candidateSet.has(player.id) && player.alive).map((player) => player.id);
+  if (!aliveCandidates.length) {
+    finishSheriffElection(roomId, null);
+    return;
+  }
+  room.sheriffSpeechOrder = [...aliveCandidates];
+  room.sheriffSpeechIndex = 0;
+  room.phase = runoff ? "SHERIFF_RUNOFF_SPEECH" : "SHERIFF_SPEECH";
+  const first = room.players.find((player) => player.id === room.sheriffSpeechOrder[0]);
+  io.to(roomId).emit("systemMsg", `${runoff ? "警長競選平票，再次" : "警上"}發言開始，請 ${first ? first.name : "候選人"} 發言。`);
+  broadcastRoomUpdate(roomId);
+}
+
+function advanceSheriffSpeech(roomId) {
+  const room = rooms[roomId];
+  if (!room || !["SHERIFF_SPEECH", "SHERIFF_RUNOFF_SPEECH"].includes(room.phase)) return;
+  room.sheriffSpeechIndex = (room.sheriffSpeechIndex || 0) + 1;
+  const order = room.sheriffSpeechOrder || [];
+  if (room.sheriffSpeechIndex >= order.length) {
+    startSheriffVote(roomId, room.phase === "SHERIFF_RUNOFF_SPEECH");
+    return;
+  }
+  const next = room.players.find((player) => player.id === order[room.sheriffSpeechIndex]);
+  io.to(roomId).emit("systemMsg", `🎤 請 ${next ? next.name : "下一位候選人"} 發言。`);
+  broadcastRoomUpdate(roomId);
+}
+
+function startSheriffVote(roomId, runoff) {
+  const room = rooms[roomId];
+  if (!room) return;
+  const candidates = runoff ? room.sheriffVotingCandidateIds : room.sheriffCandidateIds;
+  room.sheriffVotingCandidateIds = candidates.filter((id) => room.players.some((player) => player.id === id && player.alive));
+  if (!room.sheriffVotingCandidateIds.length) {
+    finishSheriffElection(roomId, null);
+    return;
+  }
+  room.sheriffEligibleVoterIds = room.players
+    .filter((player) => player.alive && !room.sheriffVotingCandidateIds.includes(player.id))
+    .map((player) => player.id);
+  room.sheriffVotes = {};
+  room.phase = runoff ? "SHERIFF_RUNOFF_VOTE" : "SHERIFF_VOTE";
+  io.to(roomId).emit("systemMsg", "警長競選投票開始，警上候選人不可投票。", "action");
+  broadcastRoomUpdate(roomId);
+  if (!room.sheriffEligibleVoterIds.length) finishSheriffVote(roomId);
+}
+
+function finishSheriffVote(roomId) {
+  const room = rooms[roomId];
+  if (!room || !["SHERIFF_VOTE", "SHERIFF_RUNOFF_VOTE"].includes(room.phase)) return;
+  const isRunoff = room.phase === "SHERIFF_RUNOFF_VOTE";
+  const totals = {};
+  Object.entries(room.sheriffVotes || {}).forEach(([voterId, targetId]) => {
+    if (targetId && room.sheriffVotingCandidateIds.includes(targetId)) {
+      totals[targetId] = (totals[targetId] || 0) + 1;
+    }
+  });
+  let maxVotes = 0;
+  let winners = [];
+  Object.entries(totals).forEach(([targetId, count]) => {
+    if (count > maxVotes) { maxVotes = count; winners = [targetId]; }
+    else if (count === maxVotes) winners.push(targetId);
+  });
+  if (winners.length === 1) {
+    finishSheriffElection(roomId, winners[0]);
+  } else if (!isRunoff && winners.length > 1) {
+    room.sheriffVotingCandidateIds = winners;
+    room.sheriffCandidateIds = [...winners];
+    room.sheriffElectionRound = 1;
+    startSheriffSpeeches(roomId, true);
+  } else {
+    finishSheriffElection(roomId, null);
+  }
+}
+
+function resolveSheriffBadge(roomId, targetId) {
+  const room = rooms[roomId];
+  if (!room || room.phase !== "SHERIFF_HANDOFF") return;
+  if (room.nightPhaseInterval) {
+    clearInterval(room.nightPhaseInterval);
+    delete room.nightPhaseInterval;
+  }
+  const target = room.players.find((player) => player.id === targetId && player.alive);
+  room.sheriffId = target ? target.id : null;
+  io.to(roomId).emit("systemMsg", target ? `👮 警徽已移交給 ${target.name}。` : "警徽已撕毀，本局不再有警長。", "action");
+  broadcastRoomUpdate(roomId);
+  resumeAfterBadge(roomId);
+}
+
 function processDaybreak(roomId) {
   const room = rooms[roomId];
   const data = nightData[roomId];
   if (!room || !data) return;
+  if (room.sheriffEnabled && !room.sheriffElectionDone) {
+    startSheriffSignup(roomId);
+    return;
+  }
 
   let killedNames = [];
   const newlyDeadPlayers = [];
@@ -268,23 +457,12 @@ function processDaybreak(roomId) {
     }
   }
 
-  const deathSkillPlayer = newlyDeadPlayers.find((p) => ["hunter", "wolfking"].includes(p.role));
-  if (deathSkillPlayer) {
-    io.to(roomId).emit("skillProcessing", true);
-    io.to(deathSkillPlayer.id).emit("hunterCanShoot", true);
-  }
-
   room.phase = "DAY";
   const resultMsg = killedNames.length > 0 ? `昨晚死亡的是：${killedNames.join(", ")}` : "昨晚是平安夜";
-
-  if (checkGameOver(roomId)) {
-    broadcastRoomUpdate(roomId);
-    io.to(roomId).emit("systemMsg", `天亮了！${resultMsg}`);
-    return;
-  }
-  initDaySpeech(rooms[roomId], roomId, null);
-  broadcastRoomUpdate(roomId);
-  io.to(roomId).emit("systemMsg", `天亮了！${resultMsg}`);
+  const deadSheriff = newlyDeadPlayers.find((player) => player.id === room.sheriffId);
+  const continueDay = () => continueAfterDaybreak(roomId, resultMsg, newlyDeadPlayers);
+  if (deadSheriff && !checkGameOver(roomId)) beginSheriffHandoff(room, roomId, deadSheriff, continueDay);
+  else continueDay();
 }
 
 function enterNight(id) {
@@ -341,7 +519,12 @@ function handlePlayerExit(socket) {
     if (playerIndex !== -1) {
       io.to(rid).emit("peerSpeaking", { id: socket.id, active: false });
       const exitingPlayer = room.players[playerIndex];
+      if (room.sheriffId === exitingPlayer.id) {
+        room.sheriffId = null;
+        io.to(rid).emit("systemMsg", "警長離開房間，警徽失效，本局不再有警長。", "action");
+      }
       room.players.splice(playerIndex, 1);
+      if (room.pendingSheriffId === exitingPlayer.id) resolveSheriffBadge(rid, null);
       
       if (room.players.length === 0) {
         delete rooms[rid];
@@ -362,7 +545,7 @@ function handlePlayerExit(socket) {
 }
 
 io.on("connection", (socket) => {
-  socket.on("createRoom", ({ name, boardType, peerId }) => {
+  socket.on("createRoom", ({ name, boardType, peerId, sheriffEnabled = false }) => {
     const isCustom = boardType === "custom";
     if (!isCustom && !PRESET_ROLES[boardType]) {
       return socket.emit("error", "無效的板子類型");
@@ -378,6 +561,14 @@ io.on("connection", (socket) => {
       presetId: isCustom ? null : boardType,
       customRoles: isCustom ? null : [...presetList],
       nightFlowKey: isCustom ? "default" : boardType,
+      sheriffEnabled: !!sheriffEnabled,
+      sheriffId: null,
+      sheriffElectionDone: !sheriffEnabled,
+      sheriffCandidateIds: [],
+      sheriffVotingCandidateIds: [],
+      sheriffVotes: {},
+      sheriffSpeechOrder: [],
+      sheriffSpeechIndex: 0,
       maxPlayers,
     };
     rooms[roomId].players.push({ id: socket.id, name: name.trim(), alive: true, role: null, peerId });
@@ -423,6 +614,12 @@ io.on("connection", (socket) => {
     const speaker = room && room.players.find((p) => p.id === socket.id);
     if (!speaker) return;
     const isActive = !!active;
+    if (["SHERIFF_SIGNUP", "SHERIFF_VOTE", "SHERIFF_RUNOFF_VOTE"].includes(room.phase)) return;
+    if (
+      ["SHERIFF_SPEECH", "SHERIFF_RUNOFF_SPEECH"].includes(room.phase) &&
+      room.sheriffSpeechOrder?.[room.sheriffSpeechIndex] !== socket.id
+    ) return;
+    if (room.phase === "SHERIFF_HANDOFF" && room.pendingSheriffId !== socket.id) return;
     if (room.gameOver) {
       io.to(id).emit("peerSpeaking", { id: socket.id, active: isActive });
       return;
@@ -466,6 +663,101 @@ io.on("connection", (socket) => {
     broadcastRoomUpdate(id);
   });
 
+  socket.on("setSheriffCandidate", ({ roomId, running }) => {
+    const id = roomId && String(roomId).toUpperCase();
+    const room = id && rooms[id];
+    const player = room && room.players.find((entry) => entry.id === socket.id);
+    if (!room || !room.sheriffEnabled || room.phase !== "SHERIFF_SIGNUP" || !player || !player.alive) return;
+    const candidates = new Set(room.sheriffCandidateIds || []);
+    if (running) candidates.add(socket.id);
+    else candidates.delete(socket.id);
+    room.sheriffCandidateIds = [...candidates];
+    broadcastRoomUpdate(id);
+  });
+
+  socket.on("startSheriffSpeeches", (roomId) => {
+    const id = roomId && String(roomId).toUpperCase();
+    const room = id && rooms[id];
+    if (!room || room.host !== socket.id || room.phase !== "SHERIFF_SIGNUP") return;
+    if (!(room.sheriffCandidateIds || []).length) {
+      io.to(id).emit("systemMsg", "目前沒有人上警，直接進入警長競選投票。", "action");
+      finishSheriffElection(id, null);
+      return;
+    }
+    startSheriffSpeeches(id, false);
+  });
+
+  socket.on("withdrawSheriff", (roomId) => {
+    const id = roomId && String(roomId).toUpperCase();
+    const room = id && rooms[id];
+    if (!room || !["SHERIFF_SIGNUP", "SHERIFF_SPEECH", "SHERIFF_RUNOFF_SPEECH"].includes(room.phase)) return;
+    const candidates = room.phase === "SHERIFF_RUNOFF_SPEECH" ? room.sheriffVotingCandidateIds : room.sheriffCandidateIds;
+    if (!candidates.includes(socket.id)) return;
+    const currentId = room.sheriffSpeechOrder && room.sheriffSpeechOrder[room.sheriffSpeechIndex];
+    room.sheriffCandidateIds = (room.sheriffCandidateIds || []).filter((id) => id !== socket.id);
+    room.sheriffVotingCandidateIds = (room.sheriffVotingCandidateIds || []).filter((id) => id !== socket.id);
+    const remainingCandidates = room.phase === "SHERIFF_RUNOFF_SPEECH" ? room.sheriffVotingCandidateIds : room.sheriffCandidateIds;
+    if (!remainingCandidates.length) {
+      finishSheriffElection(id, null);
+      return;
+    }
+    if (room.sheriffSpeechOrder) {
+      const oldIndex = room.sheriffSpeechOrder.indexOf(socket.id);
+      room.sheriffSpeechOrder = room.sheriffSpeechOrder.filter((id) => id !== socket.id);
+      if (oldIndex >= 0 && oldIndex < room.sheriffSpeechIndex) room.sheriffSpeechIndex--;
+      else if (currentId === socket.id) {
+        if (room.sheriffSpeechIndex >= room.sheriffSpeechOrder.length) {
+          startSheriffVote(id, room.phase === "SHERIFF_RUNOFF_SPEECH");
+          return;
+        }
+      }
+    }
+    const withdrawingPlayer = room.players.find((player) => player.id === socket.id);
+    io.to(id).emit("systemMsg", `${withdrawingPlayer ? withdrawingPlayer.name : "玩家"} 退水。`);
+    if (room.phase === "SHERIFF_SIGNUP" && !room.sheriffCandidateIds.length) {
+      broadcastRoomUpdate(id);
+      return;
+    }
+    broadcastRoomUpdate(id);
+  });
+
+  socket.on("nextSheriffSpeech", (roomId) => {
+    const id = roomId && String(roomId).toUpperCase();
+    const room = id && rooms[id];
+    if (!room || !["SHERIFF_SPEECH", "SHERIFF_RUNOFF_SPEECH"].includes(room.phase)) return;
+    const currentId = room.sheriffSpeechOrder && room.sheriffSpeechOrder[room.sheriffSpeechIndex];
+    if (room.host !== socket.id && currentId !== socket.id) return;
+    advanceSheriffSpeech(id);
+  });
+
+  socket.on("castSheriffVote", ({ roomId, targetId }) => {
+    const id = roomId && String(roomId).toUpperCase();
+    const room = id && rooms[id];
+    if (!room || !["SHERIFF_VOTE", "SHERIFF_RUNOFF_VOTE"].includes(room.phase)) return;
+    if (!(room.sheriffEligibleVoterIds || []).includes(socket.id)) return;
+    if (targetId && !room.sheriffVotingCandidateIds.includes(targetId)) return;
+    room.sheriffVotes[socket.id] = targetId || null;
+    const submitted = Object.keys(room.sheriffVotes).length;
+    io.to(id).emit("sheriffVoteUpdate", { count: submitted, total: room.sheriffEligibleVoterIds.length });
+    broadcastRoomUpdate(id);
+    if (submitted >= room.sheriffEligibleVoterIds.length) finishSheriffVote(id);
+  });
+
+  socket.on("finishSheriffVote", (roomId) => {
+    const id = roomId && String(roomId).toUpperCase();
+    const room = id && rooms[id];
+    if (!room || room.host !== socket.id) return;
+    finishSheriffVote(id);
+  });
+
+  socket.on("sheriffBadgeAction", ({ roomId, targetId }) => {
+    const id = roomId && String(roomId).toUpperCase();
+    const room = id && rooms[id];
+    if (!room || room.phase !== "SHERIFF_HANDOFF" || room.pendingSheriffId !== socket.id) return;
+    if (targetId && !room.players.some((player) => player.id === targetId && player.alive)) return;
+    resolveSheriffBadge(id, targetId || null);
+  });
+
   socket.on("leaveRoom", (roomId) => {
     socket.leave(roomId.toUpperCase());
     handlePlayerExit(socket);
@@ -500,6 +792,16 @@ io.on("connection", (socket) => {
     room.lastGuardTarget = null;
     room.guardActionDone = false;
     delete room.pendingLastWordsPlayerId;
+    room.sheriffId = null;
+    room.sheriffElectionDone = !room.sheriffEnabled;
+    room.sheriffCandidateIds = [];
+    room.sheriffVotingCandidateIds = [];
+    room.sheriffVotes = {};
+    delete room.skipDayAfterWolfExplode;
+    room.sheriffSpeechOrder = [];
+    room.sheriffSpeechIndex = 0;
+    delete room.pendingSheriffId;
+    delete room.sheriffHandoffCallback;
 
     shuffle(roles);
     room.players.forEach((p, i) => {
@@ -544,6 +846,16 @@ io.on("connection", (socket) => {
     delete room.pendingNightAfterShot;
     delete room.lastGuardTarget;
     delete room.pendingLastWordsPlayerId;
+    room.sheriffId = null;
+    room.sheriffElectionDone = !room.sheriffEnabled;
+    room.sheriffCandidateIds = [];
+    room.sheriffVotingCandidateIds = [];
+    room.sheriffVotes = {};
+    delete room.skipDayAfterWolfExplode;
+    room.sheriffSpeechOrder = [];
+    room.sheriffSpeechIndex = 0;
+    delete room.pendingSheriffId;
+    delete room.sheriffHandoffCallback;
     clearDaySpeech(room);
     pkPlayers[id] = [];
     votes[id] = {};
@@ -644,25 +956,29 @@ io.on("connection", (socket) => {
       const shooter = room.players.find(p => p.id === socket.id);
       const roleName = (shooter && shooter.role === 'wolfking') ? "狼王" : "獵人";
       io.to(id).emit("systemMsg", `${roleName}最後一搏，帶走了：${target.name}`);
-      io.to(id).emit("skillProcessing", false);
-      const pendingNightAfterShot = !!room.pendingNightAfterShot;
-      room.pendingNightAfterShot = false;
-      const lastWordsPlayerId = room.pendingLastWordsPlayerId;
-      delete room.pendingLastWordsPlayerId;
-      broadcastRoomUpdate(id);
-      if (checkGameOver(id)) return;
-      if (pendingNightAfterShot) enterNight(id);
-      else if (lastWordsPlayerId) {
-        const lastWordsPlayer = room.players.find((p) => p.id === lastWordsPlayerId);
-        if (lastWordsPlayer) startLastWords(room, id, lastWordsPlayer);
-      }
+      const finishShot = () => {
+        io.to(id).emit("skillProcessing", false);
+        const pendingNightAfterShot = !!room.pendingNightAfterShot;
+        room.pendingNightAfterShot = false;
+        const lastWordsPlayerId = room.pendingLastWordsPlayerId;
+        delete room.pendingLastWordsPlayerId;
+        broadcastRoomUpdate(id);
+        if (checkGameOver(id)) return;
+        if (pendingNightAfterShot) enterNight(id);
+        else if (lastWordsPlayerId) {
+          const lastWordsPlayer = room.players.find((p) => p.id === lastWordsPlayerId);
+          if (lastWordsPlayer) startLastWords(room, id, lastWordsPlayer);
+        }
+      };
+      beginSheriffHandoff(room, id, target, finishShot);
     }
   });
 
   socket.on("whiteWolfKingExplode", ({ roomId, targetId }) => {
     const id = roomId && String(roomId).toUpperCase();
     const room = id && rooms[id];
-    if (!room || room.phase !== "DAY" || room.daySubPhase !== "speech") return;
+    const sheriffElectionPhase = room && ["SHERIFF_SIGNUP", "SHERIFF_SPEECH", "SHERIFF_VOTE", "SHERIFF_RUNOFF_SPEECH", "SHERIFF_RUNOFF_VOTE"].includes(room.phase);
+    if (!room || (!sheriffElectionPhase && !(room.phase === "DAY" && room.daySubPhase === "speech"))) return;
     const whiteWolfKing = room.players.find((p) => p.id === socket.id);
     const target = room.players.find((p) => p.id === targetId);
     if (!whiteWolfKing || !whiteWolfKing.alive || whiteWolfKing.role !== "whitewolfking") {
@@ -682,15 +998,35 @@ io.on("connection", (socket) => {
     clearDaySpeech(room);
     votes[id] = {};
     pkPlayers[id] = [];
-    io.to(id).emit("systemMsg", `💥 白狼王 ${whiteWolfKing.name} 自爆，帶走了 ${target.name}！`);
-    broadcastRoomUpdate(id);
-    if (target.role === "hunter") {
-      room.pendingNightAfterShot = true;
-      io.to(id).emit("skillProcessing", true);
-      io.to(target.id).emit("hunterCanShoot", true);
-      return;
+    if (sheriffElectionPhase) {
+      room.sheriffElectionDone = true;
+      room.sheriffId = null;
+      room.sheriffCandidateIds = [];
+      room.sheriffVotingCandidateIds = [];
+      room.sheriffVotes = {};
+      room.skipDayAfterWolfExplode = true;
+      room.phase = "NIGHT_TRANSITION";
+      io.to(id).emit("systemMsg", `💥 白狼王 ${whiteWolfKing.name} 在警長競選時自爆，帶走了 ${target.name}！競選中止、警徽流失。`);
     }
-    if (!checkGameOver(id)) startNightFlow(id);
+    if (!sheriffElectionPhase) io.to(id).emit("systemMsg", `💥 白狼王 ${whiteWolfKing.name} 自爆，帶走了 ${target.name}！`);
+    broadcastRoomUpdate(id);
+    const finishExplosion = () => {
+      if (target.role === "hunter") {
+        room.pendingNightAfterShot = true;
+        delete room.skipDayAfterWolfExplode;
+        io.to(id).emit("skillProcessing", true);
+        io.to(target.id).emit("hunterCanShoot", true);
+        return;
+      }
+      if (sheriffElectionPhase) {
+        processDaybreak(id);
+        return;
+      }
+      if (!checkGameOver(id)) startNightFlow(id);
+    };
+    const deadSheriff = !sheriffElectionPhase && (room.sheriffId === whiteWolfKing.id ? whiteWolfKing : room.sheriffId === target.id ? target : null);
+    if (deadSheriff) beginSheriffHandoff(room, id, deadSheriff, finishExplosion);
+    else finishExplosion();
   });
 
   socket.on("knightCharge", ({ roomId, targetId }) => {
@@ -733,14 +1069,17 @@ io.on("connection", (socket) => {
         `⚔️ ${knight.name} 騎士翻牌衝撞 ${target.name}！狼人陣營出局，天黑。`
       );
       broadcastRoomUpdate(id);
-      if (target.role === "wolfking") {
-        if (checkGameOver(id)) return;
-        room.pendingNightAfterShot = true;
-        io.to(id).emit("skillProcessing", true);
-        io.to(target.id).emit("hunterCanShoot", true);
-        return;
-      }
-      if (!checkGameOver(id)) enterNight(id);
+      const finishCharge = () => {
+        if (target.role === "wolfking") {
+          if (checkGameOver(id)) return;
+          room.pendingNightAfterShot = true;
+          io.to(id).emit("skillProcessing", true);
+          io.to(target.id).emit("hunterCanShoot", true);
+          return;
+        }
+        if (!checkGameOver(id)) enterNight(id);
+      };
+      beginSheriffHandoff(room, id, target, finishCharge);
     } else {
       knight.alive = false;
       knight.deathReason = "knightChargeFail";
@@ -748,8 +1087,10 @@ io.on("connection", (socket) => {
         "systemMsg",
         `⚔️ ${knight.name} 騎士翻牌衝撞 ${target.name}！撞錯好人，騎士出局，遊戲繼續。`
       );
-      if (!checkGameOver(id)) advanceSpeechAfterDayDeath(room, id);
       broadcastRoomUpdate(id);
+      beginSheriffHandoff(room, id, knight, () => {
+        if (!checkGameOver(id)) advanceSpeechAfterDayDeath(room, id);
+      });
     }
   });
 
@@ -873,7 +1214,11 @@ io.on("connection", (socket) => {
     const finalVoteDetail = Object.entries(currentVotes).map(([voterId, tId]) => {
       const voter = room.players.find(p => p.id === voterId);
       const target = room.players.find(p => p.id === tId);
-      return { voterName: voter ? voter.name : "未知", targetName: target ? target.name : "未知" };
+      return {
+        voterName: voter ? voter.name : "未知",
+        targetName: target ? target.name : "未知",
+        weight: voter && voter.id === room.sheriffId ? 1.5 : 1,
+      };
     });
 
     io.to(id).emit("showFinalVotes", finalVoteDetail);
@@ -885,7 +1230,11 @@ io.on("connection", (socket) => {
     }
 
     const tally = {};
-    Object.values(currentVotes).forEach(tid => tally[tid] = (tally[tid] || 0) + 1);
+    Object.entries(currentVotes).forEach(([voterId, targetId]) => {
+      const voter = room.players.find((player) => player.id === voterId);
+      const weight = voter && voter.id === room.sheriffId ? 1.5 : 1;
+      tally[targetId] = (tally[targetId] || 0) + weight;
+    });
 
     let maxVotes = 0;
     let candidates = [];
@@ -916,13 +1265,16 @@ io.on("connection", (socket) => {
             target.alive = false;
             target.deathReason = "voted";
             io.to(id).emit("systemMsg", `投票結果：${target.name} 被處決了！`);
-            if (target.role === 'hunter' || target.role === 'wolfking') {
-                room.pendingLastWordsPlayerId = target.id;
-                io.to(id).emit("skillProcessing", true);
-                io.to(target.id).emit("hunterCanShoot", true);
-                return;
-            }
-            startLastWords(room, id, target);
+            const continueExpulsion = () => {
+              if (target.role === 'hunter' || target.role === 'wolfking') {
+                  room.pendingLastWordsPlayerId = target.id;
+                  io.to(id).emit("skillProcessing", true);
+                  io.to(target.id).emit("hunterCanShoot", true);
+                  return;
+              }
+              startLastWords(room, id, target);
+            };
+            beginSheriffHandoff(room, id, target, continueExpulsion);
             return;
         }
         enterNight(id);

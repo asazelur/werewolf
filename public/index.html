@@ -248,12 +248,18 @@
       <option value="12_knight">12 人騎士板</option>
       <option value="custom">自訂（房長選角，人數上限 99）</option>
     </select>
+    <label style="display:flex;align-items:center;justify-content:center;gap:8px;margin:10px auto;color:#f4e8ff">
+      <input id="sheriffEnabled" type="checkbox" checked style="width:auto;margin:0" /> 開啟警長競選與警徽
+    </label>
+    <small style="display:block;margin:-4px auto 10px;color:#c9bfda">首夜後進行競選；警長白天投票算 1.5 票，出局時可移交或撕毀警徽。</small>
     <button class="btn-create" onclick="create()">建立房間並開啟麥克風</button>
     <br><br>
     <input id="roomNumber" placeholder="房號 (4位字母)" />
     <button class="btn-join" onclick="join()">加入房間並開啟麥克風</button>
+    <button id="singlePageTestBtn" class="btn-inline" style="display:none;background:#8e44ad;color:#fff;margin:12px 0 0;width:100%" onclick="startSinglePageTest()">🧪 單分頁測試（建立 5 人測試局）</button>
   </div>
 
+  <aside id="singlePageTestNotice" style="display:none;margin:12px 0;padding:12px 16px;border:1px solid #b58be0;border-radius:10px;background:#261b36;color:#f1e7ff" aria-live="polite"></aside>
   <div id="systemMsg"></div>
   <div id="speechBanner"></div>
   <div id="voiceMode" aria-live="polite"></div>
@@ -343,6 +349,7 @@
 <script>
   const socket = io();
   let currentRoom = "", myStream, witchKnowledgeId = null, canShoot = false, inPK = [];
+  let singlePageTest = null;
   let isSkillProcessing = false;
   let lastRoomState = null;
   const speakingPeers = new Set();
@@ -361,6 +368,170 @@
   const audioContainer = document.getElementById("audio-container");
   const nightBgm = document.getElementById("nightBgm");
   nightBgm.volume = 0.2;
+  const singlePageTestButton = document.getElementById("singlePageTestBtn");
+  if (["localhost", "127.0.0.1", "::1"].includes(location.hostname)) {
+    singlePageTestButton.style.display = "block";
+  }
+
+  function setSinglePageTestStatus(message) {
+    const notice = document.getElementById("singlePageTestNotice");
+    notice.style.display = "block";
+    notice.textContent = `🧪 單分頁測試：${message}`;
+  }
+
+  function startSinglePageTest() {
+    if (currentRoom || singlePageTest) return;
+    const bots = [];
+    const roleById = new Map();
+    const acted = new Set();
+    const pulsedSpeakers = new Set();
+    let speechAdvancing = false;
+    let onRoomUpdate;
+    let onRole;
+    singlePageTest = {
+      bots,
+      stop() {
+        bots.forEach((bot) => bot.disconnect());
+        if (onRoomUpdate) socket.off("update", onRoomUpdate);
+        if (onRole) socket.off("role", onRole);
+        singlePageTest = null;
+        document.getElementById("singlePageTestNotice").style.display = "none";
+      }
+    };
+    document.getElementById("userName").value = "測試房主";
+    document.getElementById("playerLimit").value = "5";
+    document.getElementById("loadPresetSelect").value = "5";
+    setSinglePageTestStatus("正在建立房間與加入虛擬玩家…");
+
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const botsJoined = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("虛擬玩家加入逾時")), 12000);
+      socket.on("update", function onRoomUpdate(room) {
+        if (!singlePageTest || room.players.length < 5) return;
+        socket.off("update", onRoomUpdate);
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
+    socket.once("roomCreated", async (roomId) => {
+      currentRoom = roomId;
+      document.getElementById("setupArea").style.display = "none";
+      document.getElementById("startBtn").style.display = "block";
+      document.getElementById("leaveBtn").style.display = "block";
+      document.getElementById("info").innerText = `房號：${roomId}（單分頁測試）`;
+      for (let i = 1; i <= 4; i++) {
+        const bot = io({ reconnection: false });
+        bots.push(bot);
+        bot.on("role", (role) => { roleById.set(bot.id, role); });
+        bot.on("connect", () => bot.emit("joinRoom", { roomId, name: `測試玩家 ${i}`, peerId: null }));
+      }
+      try {
+        await botsJoined;
+        await wait(150);
+        setSinglePageTestStatus("5 位玩家已就緒，正在載入 5 人角色並開始。夜晚會自動行動；白天發言與投票由測試玩家推進。遺言時會停下來給你看。");
+        socket.emit("setGameConfig", { roomId, loadPresetId: "5", nightFlowKey: "5" });
+        await wait(200);
+        socket.emit("startGame", roomId);
+      } catch (error) {
+        setSinglePageTestStatus(`${error.message}。請退出房間後重試。`);
+      }
+    });
+    onRole = (role) => { if (singlePageTest) roleById.set(socket.id, role); };
+    socket.on("role", onRole);
+    socket.emit("createRoom", { name: "測試房主", boardType: "5", peerId: null, sheriffEnabled: document.getElementById("sheriffEnabled").checked });
+
+    function driveTestRoom(room) {
+      if (!singlePageTest || !room || room.phase === "WAIT") return;
+      const mine = room.players.find((player) => player.id === socket.id);
+      if (mine && mine.role) roleById.set(socket.id, mine.role);
+      const phaseKey = room.gameOver ? "GAME_OVER" : `${room.round || 1}:${room.phase}:${room.daySubPhase || ""}:${room.currentSpeechId || ""}:${room.sheriffSpeechIndex || 0}`;
+      if (room.gameOver) {
+        setSinglePageTestStatus("測試局已結束。可查看職業揭露與結果；按「退出房間」即可清理虛擬玩家。");
+        return;
+      }
+      if (room.phase === "SHERIFF_SIGNUP" && !acted.has(phaseKey)) {
+        acted.add(phaseKey);
+        bots.slice(0, 2).forEach((bot) => bot.emit("setSheriffCandidate", { roomId: currentRoom, running: true }));
+        setSinglePageTestStatus("虛擬玩家正在競選警長…");
+        setTimeout(() => {
+          if (singlePageTest && lastRoomState?.phase === "SHERIFF_SIGNUP") socket.emit("startSheriffSpeeches", currentRoom);
+        }, 500);
+      }
+      if (["SHERIFF_SPEECH", "SHERIFF_RUNOFF_SPEECH"].includes(room.phase) && !acted.has(phaseKey)) {
+        acted.add(phaseKey);
+        const speakerId = room.sheriffSpeechOrder?.[room.sheriffSpeechIndex];
+        const speaker = speakerId === socket.id ? socket : bots.find((bot) => bot.id === speakerId);
+        if (speaker) {
+          speaker.emit("speakingState", { roomId: currentRoom, active: true });
+          setTimeout(() => speaker.emit("speakingState", { roomId: currentRoom, active: false }), 450);
+        }
+        setSinglePageTestStatus("虛擬候選人輪流進行警上發言…");
+        setTimeout(() => {
+          if (singlePageTest && ["SHERIFF_SPEECH", "SHERIFF_RUNOFF_SPEECH"].includes(lastRoomState?.phase)) socket.emit("nextSheriffSpeech", currentRoom);
+        }, 550);
+      }
+      if (["SHERIFF_VOTE", "SHERIFF_RUNOFF_VOTE"].includes(room.phase) && !acted.has(phaseKey)) {
+        acted.add(phaseKey);
+        const nominee = room.sheriffVotingCandidateIds?.[0];
+        if (nominee) {
+          room.players.filter((player) => player.alive && !(room.sheriffVotingCandidateIds || []).includes(player.id)).forEach((player) => {
+            const voter = player.id === socket.id ? socket : bots.find((bot) => bot.id === player.id);
+            if (voter) voter.emit("castSheriffVote", { roomId: currentRoom, targetId: nominee });
+          });
+        }
+        setSinglePageTestStatus("虛擬玩家正在投票選警長…");
+      }
+      if (room.phase === "NIGHT_WOLF" && !acted.has(phaseKey)) {
+        const wolf = room.players.find((player) => player.alive && ["wolf", "wolfking", "whitewolfking"].includes(roleById.get(player.id)));
+        const witch = room.players.find((player) => player.alive && roleById.get(player.id) === "witch");
+        if (wolf && witch && roleById.size >= 5) {
+          acted.add(phaseKey);
+          const actor = wolf.id === socket.id ? socket : bots.find((bot) => bot.id === wolf.id);
+          if (actor) actor.emit("wolfKill", { roomId: currentRoom, targetId: witch.id });
+        }
+      }
+      if (room.phase === "DAY" && room.daySubPhase === "speech" && !speechAdvancing) {
+        speechAdvancing = true;
+        setSinglePageTestStatus("白天輪流發言中…");
+        const advanceNext = () => {
+          if (!singlePageTest || !lastRoomState || lastRoomState.phase !== "DAY" || lastRoomState.daySubPhase !== "speech") {
+            speechAdvancing = false;
+            return;
+          }
+          socket.emit("nextSpeech", { roomId: currentRoom });
+          setTimeout(advanceNext, 700);
+        };
+        setTimeout(advanceNext, 700);
+      }
+      if (room.phase === "DAY" && room.daySubPhase === "speech" && room.currentSpeechId && !pulsedSpeakers.has(room.currentSpeechId)) {
+        pulsedSpeakers.add(room.currentSpeechId);
+        const speaker = room.currentSpeechId === socket.id ? socket : bots.find((bot) => bot.id === room.currentSpeechId);
+        if (speaker) {
+          speaker.emit("speakingState", { roomId: currentRoom, active: true });
+          setTimeout(() => speaker.emit("speakingState", { roomId: currentRoom, active: false }), 550);
+        }
+      }
+      if (room.phase === "DAY" && room.daySubPhase === "vote" && !acted.has(phaseKey)) {
+        acted.add(phaseKey);
+        const wolf = room.players.find((player) => ["wolf", "wolfking", "whitewolfking"].includes(roleById.get(player.id)));
+        if (wolf) {
+          room.players.filter((player) => player.alive && player.id !== socket.id).forEach((player) => {
+            const voter = bots.find((bot) => bot.id === player.id);
+            if (voter) voter.emit("castVote", { roomId: currentRoom, targetId: wolf.id });
+          });
+          socket.emit("castVote", { roomId: currentRoom, targetId: wolf.id });
+          setTimeout(() => {
+            if (singlePageTest && lastRoomState?.daySubPhase === "vote") socket.emit("finishVote", currentRoom);
+          }, 500);
+        }
+      }
+      if (room.phase === "DAY" && room.daySubPhase === "lastWords") {
+        setSinglePageTestStatus("遺言階段已停下來。現在可以檢視畫面與發言者亮燈；用遊戲中的按鈕結束遺言。");
+      }
+    }
+    onRoomUpdate = driveTestRoom;
+    socket.on("update", onRoomUpdate);
+  }
 
   const ROLE_LABELS = {
     wolf: "狼人", wolfking: "狼王", whitewolfking: "白狼王", seer: "預言家", witch: "女巫",
@@ -701,7 +872,7 @@
   async function create() {
     if (!document.getElementById("userName").value) return alert("請輸入名字");
     await initMic();
-    socket.emit("createRoom", { name: document.getElementById("userName").value, boardType: document.getElementById("playerLimit").value, peerId: peer.id });
+    socket.emit("createRoom", { name: document.getElementById("userName").value, boardType: document.getElementById("playerLimit").value, peerId: peer.id, sheriffEnabled: document.getElementById("sheriffEnabled").checked });
   }
 
   async function join() {
@@ -719,6 +890,7 @@
   function leaveRoom() {
     if (!currentRoom) return;
     if (confirm("確定要離開房間嗎？")) {
+      if (singlePageTest) singlePageTest.stop();
       stopMicMonitor();
       closeAllPeerCalls();
       allowedVoicePeerIds.clear();
@@ -803,7 +975,8 @@
     lastRoomState = room;
     setNightMusic(!room.gameOver && room.phase.startsWith("NIGHT_"));
     document.body.classList.remove("scene-night", "scene-day", "scene-ended");
-    document.body.classList.add(room.gameOver ? "scene-ended" : room.phase.startsWith("NIGHT_") ? "scene-night" : room.phase === "DAY" ? "scene-day" : "scene-lobby");
+    const sheriffPhases = ["SHERIFF_SIGNUP", "SHERIFF_SPEECH", "SHERIFF_VOTE", "SHERIFF_RUNOFF_SPEECH", "SHERIFF_RUNOFF_VOTE", "SHERIFF_HANDOFF", "SHERIFF_RESULT"];
+    document.body.classList.add(room.gameOver ? "scene-ended" : room.phase.startsWith("NIGHT_") ? "scene-night" : room.phase === "DAY" || sheriffPhases.includes(room.phase) ? "scene-day" : "scene-lobby");
     if (previousRoomState && previousRoomState.phase !== "WAIT" && room.phase === "WAIT") {
       document.getElementById("gameLog").innerHTML = "";
     } else if (!previousRoomState) {
@@ -841,6 +1014,15 @@
       } else {
         voiceMode.textContent = "🔇 夜間行動中：所有玩家的麥克風已自動關閉";
       }
+    } else if (["SHERIFF_SIGNUP", "SHERIFF_VOTE", "SHERIFF_RUNOFF_VOTE"].includes(room.phase)) {
+      voiceMode.style.display = "block";
+      voiceMode.textContent = "🔇 警長競選中：請依畫面提示操作，投票期間麥克風關閉";
+    } else if (["SHERIFF_SPEECH", "SHERIFF_RUNOFF_SPEECH"].includes(room.phase)) {
+      voiceMode.style.display = "block";
+      voiceMode.textContent = room.canSpeak ? "🎙️ 輪到你進行警上發言" : "🔇 警上發言中：只有目前候選人可以發言";
+    } else if (room.phase === "SHERIFF_HANDOFF") {
+      voiceMode.style.display = "block";
+      voiceMode.textContent = room.canSpeak ? "🪪 請決定移交或撕毀警徽" : "🔇 等待警長移交或撕毀警徽";
     } else if (room.phase === "DAY" && room.daySubPhase === "lastWords") {
       voiceMode.style.display = "block";
       voiceMode.textContent = room.canSpeak
@@ -917,7 +1099,12 @@
       document.getElementById("waitingConfigMsg").style.display = "none";
     }
 
-    info.innerText = "房號：" + currentRoom + " | 階段：" + room.phase;
+    const phaseNames = {
+      SHERIFF_SIGNUP: "警長競選（上警）", SHERIFF_SPEECH: "警上發言", SHERIFF_VOTE: "警長投票",
+      SHERIFF_RUNOFF_SPEECH: "警長平票發言", SHERIFF_RUNOFF_VOTE: "警長平票投票",
+      SHERIFF_HANDOFF: "警徽移交", SHERIFF_RESULT: "警長選出"
+    };
+    info.innerText = "房號：" + currentRoom + " | 階段：" + (phaseNames[room.phase] || room.phase);
     if (phaseChanged) {
       info.classList.remove("phase-transition");
       void info.offsetWidth;
@@ -927,7 +1114,21 @@
     }
 
     const speechEl = document.getElementById("speechBanner");
-    if (room.phase === "DAY" && room.daySubPhase === "lastWords") {
+    if (["SHERIFF_SIGNUP", "SHERIFF_SPEECH", "SHERIFF_RUNOFF_SPEECH", "SHERIFF_VOTE", "SHERIFF_RUNOFF_VOTE", "SHERIFF_HANDOFF"].includes(room.phase)) {
+      speechEl.style.display = "block";
+      if (room.phase === "SHERIFF_SIGNUP") {
+        const candidates = (room.sheriffCandidateIds || []).map((id) => room.players.find((player) => player.id === id)?.name).filter(Boolean);
+        speechEl.innerHTML = `👮 <strong>警長競選</strong> — 想競選的玩家請按「上警」${candidates.length ? `；目前警上：${candidates.join("、")}` : ""}`;
+      } else if (["SHERIFF_SPEECH", "SHERIFF_RUNOFF_SPEECH"].includes(room.phase)) {
+        const speakerId = room.sheriffSpeechOrder?.[room.sheriffSpeechIndex];
+        const speaker = room.players.find((player) => player.id === speakerId);
+        speechEl.innerHTML = `🎤 <strong>${room.phase === "SHERIFF_RUNOFF_SPEECH" ? "平票候選人發言" : "警上發言"}</strong> — 請 <strong>${speaker ? speaker.name : "候選人"}</strong> 發言`;
+      } else if (["SHERIFF_VOTE", "SHERIFF_RUNOFF_VOTE"].includes(room.phase)) {
+        speechEl.innerHTML = `🗳️ <strong>${room.phase === "SHERIFF_RUNOFF_VOTE" ? "警長平票投票" : "警長競選投票"}</strong> — 已投票 ${room.sheriffVoteCount || 0} / ${room.sheriffEligibleVoterCount || 0}`;
+      } else {
+        speechEl.innerHTML = "🪪 <strong>警徽交接</strong> — 前任警長請選擇移交對象，或撕毀警徽";
+      }
+    } else if (room.phase === "DAY" && room.daySubPhase === "lastWords") {
       speechEl.style.display = "block";
       const lastWordsPlayer = room.players.find((p) => p.id === room.lastWordsPlayerId);
       speechEl.innerHTML =
@@ -1009,6 +1210,8 @@
       nameSpan.className = "player-name";
       let label = p.name + (p.alive ? "" : " 💀") + (p.id === room.host ? " (房長)" : "");
       if (p.knightRevealed) label += " ⚔️[騎士]";
+      if (p.id === room.sheriffId) label += " 👮[警長]";
+      if ((room.sheriffCandidateIds || []).includes(p.id)) label += "（警上）";
       nameSpan.textContent = label;
       nameRow.appendChild(dot);
       nameRow.appendChild(nameSpan);
@@ -1018,6 +1221,35 @@
       group.className = "action-group";
 
       if (me && me.alive && !isSkillProcessing) {
+        if (p.id === me.id && room.phase === "SHERIFF_SIGNUP") {
+          const btn = document.createElement("button");
+          btn.className = "action-btn btn-check";
+          btn.innerText = room.isSheriffCandidate ? "退水" : "上警";
+          btn.onclick = () => socket.emit("setSheriffCandidate", { roomId: currentRoom, running: !room.isSheriffCandidate });
+          group.appendChild(btn);
+        }
+        if (
+          p.id === me.id &&
+          ["SHERIFF_SPEECH", "SHERIFF_RUNOFF_SPEECH"].includes(room.phase) &&
+          (room.sheriffCandidateIds || []).includes(me.id)
+        ) {
+          const btn = document.createElement("button");
+          btn.className = "action-btn btn-check";
+          btn.innerText = "退水";
+          btn.onclick = () => socket.emit("withdrawSheriff", currentRoom);
+          group.appendChild(btn);
+        }
+        if (
+          room.sheriffCanVote && !room.sheriffHasVoted &&
+          ["SHERIFF_VOTE", "SHERIFF_RUNOFF_VOTE"].includes(room.phase) &&
+          p.alive && (room.sheriffVotingCandidateIds || []).includes(p.id)
+        ) {
+          const btn = document.createElement("button");
+          btn.className = "action-btn btn-vote";
+          btn.innerText = "投警長";
+          btn.onclick = () => socket.emit("castSheriffVote", { roomId: currentRoom, targetId: p.id });
+          group.appendChild(btn);
+        }
         if (room.phase === "NIGHT_GUARD" && me.role === "guard" && !room.guardActionDone && p.alive) {
           const btn = document.createElement("button"); btn.innerText = "🛡️ 守護"; btn.className = "action-btn btn-save";
           btn.onclick = () => socket.emit("guardAction", { roomId: currentRoom, targetId: p.id });
@@ -1060,8 +1292,8 @@
           group.appendChild(btn);
         }
         if (
-          room.phase === "DAY" &&
-          room.daySubPhase === "speech" &&
+          ((room.phase === "DAY" && room.daySubPhase === "speech") ||
+            ["SHERIFF_SIGNUP", "SHERIFF_SPEECH", "SHERIFF_VOTE", "SHERIFF_RUNOFF_SPEECH", "SHERIFF_RUNOFF_VOTE"].includes(room.phase)) &&
           me.role === "whitewolfking" &&
           p.id !== me.id &&
           p.alive
@@ -1069,9 +1301,9 @@
           const wb = document.createElement("button");
           wb.innerText = "💥自爆帶走";
           wb.className = "action-btn btn-knight-charge btn-whitewolf-explode";
-          wb.title = "白狼王自爆並帶走一名玩家，隨即進入黑夜";
+          wb.title = "白狼王自爆帶走玩家；警長競選期間會中止競選並吞掉警徽";
           wb.onclick = () => {
-            if (!confirm(`確定自爆並帶走 ${p.name}？這會立刻結束白天。`)) return;
+            if (!confirm(`確定自爆並帶走 ${p.name}？這會中止目前階段並進入夜晚。`)) return;
             socket.emit("whiteWolfKingExplode", { roomId: currentRoom, targetId: p.id });
           };
           group.appendChild(wb);
@@ -1105,6 +1337,14 @@
         group.appendChild(btn);
       }
 
+      if (room.phase === "SHERIFF_HANDOFF" && room.pendingSheriffId === socket.id && p.alive) {
+        const btn = document.createElement("button");
+        btn.className = "action-btn btn-check";
+        btn.innerText = "移交警徽給他";
+        btn.onclick = () => socket.emit("sheriffBadgeAction", { roomId: currentRoom, targetId: p.id });
+        group.appendChild(btn);
+      }
+
       li.appendChild(group);
       list.appendChild(li);
     });
@@ -1120,6 +1360,49 @@
         sb.onclick = () => socket.emit("nextSpeech", { roomId: currentRoom });
         document.getElementById("roundActions").appendChild(sb);
       }
+    }
+
+    if (room.phase === "SHERIFF_SIGNUP" && room.host === socket.id) {
+      const btn = document.createElement("button");
+      btn.className = "btn-speech";
+      btn.innerText = "⏭ 結束上警並開始警上發言";
+      btn.onclick = () => socket.emit("startSheriffSpeeches", currentRoom);
+      document.getElementById("roundActions").appendChild(btn);
+    }
+
+    if (["SHERIFF_SPEECH", "SHERIFF_RUNOFF_SPEECH"].includes(room.phase)) {
+      const currentSheriffSpeaker = room.sheriffSpeechOrder?.[room.sheriffSpeechIndex];
+      if (room.host === socket.id || currentSheriffSpeaker === socket.id) {
+        const btn = document.createElement("button");
+        btn.className = "btn-speech";
+        btn.innerText = currentSheriffSpeaker === socket.id ? "✓ 我說完了" : "⏭ 下一位候選人";
+        btn.onclick = () => socket.emit("nextSheriffSpeech", currentRoom);
+        document.getElementById("roundActions").appendChild(btn);
+      }
+    }
+
+    if (["SHERIFF_VOTE", "SHERIFF_RUNOFF_VOTE"].includes(room.phase) && room.sheriffCanVote && !room.sheriffHasVoted) {
+      const btn = document.createElement("button");
+      btn.className = "btn-speech";
+      btn.innerText = "棄票";
+      btn.onclick = () => socket.emit("castSheriffVote", { roomId: currentRoom, targetId: null });
+      document.getElementById("roundActions").appendChild(btn);
+    }
+
+    if (["SHERIFF_VOTE", "SHERIFF_RUNOFF_VOTE"].includes(room.phase) && room.host === socket.id) {
+      const btn = document.createElement("button");
+      btn.className = "btn-speech";
+      btn.innerText = `提前結算警長投票（${room.sheriffVoteCount || 0}/${room.sheriffEligibleVoterCount || 0}）`;
+      btn.onclick = () => socket.emit("finishSheriffVote", currentRoom);
+      document.getElementById("roundActions").appendChild(btn);
+    }
+
+    if (room.phase === "SHERIFF_HANDOFF" && room.pendingSheriffId === socket.id) {
+      const btn = document.createElement("button");
+      btn.className = "btn-speech";
+      btn.innerText = "撕毀警徽（本局不再有警長）";
+      btn.onclick = () => socket.emit("sheriffBadgeAction", { roomId: currentRoom, targetId: null });
+      document.getElementById("roundActions").appendChild(btn);
     }
 
     if (
@@ -1155,7 +1438,7 @@
     detail.forEach(d => {
       const tag = document.createElement("span"); 
       tag.className = "vote-tag";
-      tag.innerText = `🗳️ ${d.voterName} ➔ ${d.targetName}`;
+      tag.innerText = `🗳️ ${d.voterName} ➔ ${d.targetName}${d.weight === 1.5 ? "（警長 1.5 票）" : ""}`;
       area.appendChild(tag);
     });
     if (detail.length) {
