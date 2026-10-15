@@ -1422,7 +1422,7 @@
       document.getElementById("roundActions").appendChild(btn);
     }
 
-    if (room.phase === "DAY" && room.daySubPhase === "vote" && room.host === socket.id) {
+    if (room.phase === "DAY" && room.daySubPhase === "vote" && room.host === socket.id && !room.dayVoteFinalized) {
       const btn = document.createElement("button"); btn.innerText = "👉 結算投票";
       btn.style.background = "#533483"; btn.style.color = "white";
       btn.onclick = () => socket.emit("finishVote", currentRoom);

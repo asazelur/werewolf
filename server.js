@@ -32,7 +32,8 @@ function broadcastRoomUpdate(roomId) {
       payload.dayVoteSubmitted = Object.prototype.hasOwnProperty.call(dayVotes, p.id);
       payload.dayVoteCount = Object.keys(dayVotes).length;
       payload.dayVoteTotal = room.players.filter((player) => player.alive && !pk.includes(player.id)).length;
-      payload.canDayVote = !!(p.alive && !pk.includes(p.id));
+      payload.dayVoteFinalized = !!room.dayVoteFinalized;
+      payload.canDayVote = !!(p.alive && !pk.includes(p.id) && !room.dayVoteFinalized);
     }
     if (room.phase === "NIGHT_SEER" && p.role === "seer") {
       payload.seerActionDone = !!(nightData[roomId] && nightData[roomId].seerUsed);
@@ -100,6 +101,7 @@ function attachSpeechMeta(room) {
 /** onlyIds：平票 PK 時僅候選人輪流發言 */
 function initDaySpeech(room, roomId, onlyIds) {
   clearDaySpeech(room);
+  room.dayVoteFinalized = false;
   const ids =
     onlyIds && onlyIds.length
       ? shuffle([...onlyIds])
@@ -1160,6 +1162,7 @@ io.on("connection", (socket) => {
     syncSpeechIndex(room);
     if (room.speechIndex >= room.speechOrder.length) {
       room.daySubPhase = "vote";
+      room.dayVoteFinalized = false;
       io.to(id).emit("systemMsg", "發言結束，請投票。");
     } else {
       const nextP = room.players.find(
@@ -1233,7 +1236,7 @@ io.on("connection", (socket) => {
   socket.on("castVote", ({ roomId, targetId }) => {
     const id = roomId.toUpperCase();
     const room = rooms[id];
-    if (room && room.phase === "DAY" && room.daySubPhase === "vote") {
+    if (room && room.phase === "DAY" && room.daySubPhase === "vote" && !room.dayVoteFinalized) {
       const voter = room.players.find((player) => player.id === socket.id);
       const pk = pkPlayers[id] || [];
       const target = targetId ? room.players.find((player) => player.id === targetId) : null;
@@ -1254,10 +1257,12 @@ io.on("connection", (socket) => {
     const id = roomId.toUpperCase();
     const room = rooms[id];
     const currentVotes = votes[id] || {};
-    if (!room) return;
+    if (!room || room.host !== socket.id || room.dayVoteFinalized) return;
     if (room.daySubPhase !== "vote") {
       return io.to(id).emit("systemMsg", "請先完成發言階段再結算投票。");
     }
+    room.dayVoteFinalized = true;
+    broadcastRoomUpdate(id);
 
     const finalVoteDetail = Object.entries(currentVotes).map(([voterId, tId]) => {
       const voter = room.players.find(p => p.id === voterId);
