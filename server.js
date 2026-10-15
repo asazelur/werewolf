@@ -34,6 +34,9 @@ function broadcastRoomUpdate(roomId) {
       payload.dayVoteTotal = room.players.filter((player) => player.alive && !pk.includes(player.id)).length;
       payload.canDayVote = !!(p.alive && !pk.includes(p.id));
     }
+    if (room.phase === "NIGHT_SEER" && p.role === "seer") {
+      payload.seerActionDone = !!(nightData[roomId] && nightData[roomId].seerUsed);
+    }
     io.to(p.id).emit("update", payload);
   });
 }
@@ -242,7 +245,7 @@ function startNightFlow(roomId) {
   const room = rooms[roomId];
   if (!room) return;
 
-  nightData[roomId] = { killed: null, usedAntidote: false, usedPoison: null, protected: null };
+  nightData[roomId] = { killed: null, usedAntidote: false, usedPoison: null, protected: null, seerUsed: false };
   room.guardActionDone = false;
   runNightStep(roomId, 0);
 }
@@ -255,8 +258,16 @@ function continueAfterDaybreak(roomId, resultMsg, newlyDeadPlayers) {
     io.to(roomId).emit("systemMsg", `天亮了！${resultMsg}`);
     return;
   }
+  const firstNightVictim = !room.firstNightDaybreak
+    ? newlyDeadPlayers.find((player) => player.deathReason === "killed")
+    : null;
+  room.firstNightDaybreak = true;
   const deathSkillPlayer = newlyDeadPlayers.find((p) => ["hunter", "wolfking"].includes(p.role));
   if (deathSkillPlayer) {
+    if (firstNightVictim) {
+      room.pendingLastWordsPlayerId = firstNightVictim.id;
+      room.lastWordsContinueDay = true;
+    }
     if (room.skipDayAfterWolfExplode) {
       room.pendingNightAfterShot = true;
       delete room.skipDayAfterWolfExplode;
@@ -271,6 +282,12 @@ function continueAfterDaybreak(roomId, resultMsg, newlyDeadPlayers) {
   if (room.skipDayAfterWolfExplode) {
     delete room.skipDayAfterWolfExplode;
     enterNight(roomId);
+    return;
+  }
+  if (firstNightVictim) {
+    room.lastWordsContinueDay = true;
+    startLastWords(room, roomId, firstNightVictim);
+    io.to(roomId).emit("systemMsg", `天亮了！${resultMsg}`);
     return;
   }
   initDaySpeech(room, roomId, null);
@@ -514,6 +531,13 @@ function finishLastWords(roomId) {
   if (room.nightPhaseInterval) {
     clearInterval(room.nightPhaseInterval);
     delete room.nightPhaseInterval;
+  }
+  if (room.lastWordsContinueDay) {
+    delete room.lastWordsContinueDay;
+    io.to(roomId).emit("systemMsg", "首夜遺言結束，繼續白天發言。");
+    initDaySpeech(room, roomId, null);
+    broadcastRoomUpdate(roomId);
+    return;
   }
   io.to(roomId).emit("systemMsg", "遺言結束，準備進入夜晚。");
   enterNight(roomId);
@@ -830,6 +854,8 @@ io.on("connection", (socket) => {
       io.to(p.id).emit("role", p.role);
     });
     delete room.pendingNightAfterShot;
+    room.firstNightDaybreak = false;
+    delete room.lastWordsContinueDay;
     room.guardActionDone = false;
 
     startNightFlow(id);
@@ -949,11 +975,17 @@ io.on("connection", (socket) => {
       socket.emit("actionError", "只有存活的預言家可以查驗。");
       return;
     }
+    if (!nightData[id] || nightData[id].seerUsed) {
+      socket.emit("actionError", "你今晚已經查驗過了。");
+      return;
+    }
     if (!target || !target.alive || target.id === seer.id) {
       socket.emit("actionError", "請選擇一位存活的其他玩家。");
       return;
     }
+    nightData[id].seerUsed = true;
     socket.emit("seerResult", ["wolf", "wolfking", "whitewolfking"].includes(target.role), target.id);
+    broadcastRoomUpdate(id);
   });
 
   socket.on("hunterAction", ({ roomId, targetId }) => {

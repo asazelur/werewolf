@@ -1260,7 +1260,7 @@
           btn.onclick = () => socket.emit("wolfKill", { roomId: currentRoom, targetId: p.id });
           group.appendChild(btn);
         }
-        if (room.phase === "NIGHT_SEER" && me.role === "seer" && p.id !== me.id && p.alive) {
+        if (room.phase === "NIGHT_SEER" && me.role === "seer" && !room.seerActionDone && p.id !== me.id && p.alive) {
           const btn = document.createElement("button"); btn.innerText = "查驗"; btn.className = "action-btn btn-check";
           btn.onclick = () => socket.emit("seerAction", { roomId: currentRoom, targetId: p.id });
           group.appendChild(btn);
