@@ -173,7 +173,7 @@ function countdown(roomId, seconds, nextStep) {
       }
       nextStep();
     }
-  }, 1000);
+  }, process.env.WEREWOLF_E2E_FAST === "1" ? 10 : 1000);
 }
 
 function checkGameOver(roomId) {
@@ -506,7 +506,9 @@ function enterNight(id) {
       clearTimeout(room.enterNightTimeout);
       delete room.enterNightTimeout;
     }
-    const delay = getBoardFlow(room.nightFlowKey).enterNightDelayMs;
+    const delay = process.env.WEREWOLF_E2E_FAST === "1"
+      ? 10
+      : getBoardFlow(room.nightFlowKey).enterNightDelayMs;
     room.enterNightTimeout = setTimeout(() => {
       delete room.enterNightTimeout;
       const r = rooms[id];
