@@ -112,6 +112,7 @@ function attachVoicePolicy(payload, room, socketId) {
   const nightPhase = String(room.phase || "").startsWith("NIGHT_");
   const gameOver = !!room.gameOver;
   const daySpeechPhase = room.phase === "DAY" && room.daySubPhase === "speech";
+  const dayVotePhase = room.phase === "DAY" && room.daySubPhase === "vote";
   const lastWordsPhase = room.phase === "DAY" && room.daySubPhase === "lastWords";
   const isLastWordsSpeaker = !!(player && player.id === room.lastWordsPlayerId);
   const isCurrentSpeaker = !!(player && player.alive && room.currentSpeechId === socketId);
@@ -134,7 +135,9 @@ function attachVoicePolicy(payload, room, socketId) {
       : room.phase === "DAY"
         ? lastWordsPhase
           ? isLastWordsSpeaker
-          : player && player.alive && (!daySpeechPhase || isCurrentSpeaker)
+          : dayVotePhase
+            ? false
+            : player && player.alive && (!daySpeechPhase || isCurrentSpeaker)
         : !!(player && player.alive);
   const canJoinWolfConversation = !!(wolfPhase && isWolf && player.alive);
   payload.voicePeerIds = gameOver

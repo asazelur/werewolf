@@ -1034,6 +1034,9 @@
       voiceMode.textContent = room.canSpeak
         ? "🎙️ 你的麥克風已開啟，可以發言"
         : `🔇 輪到「${currentSpeaker ? currentSpeaker.name : "玩家"}」發言，其他玩家麥克風已關閉`;
+    } else if (room.phase === "DAY" && room.daySubPhase === "vote") {
+      voiceMode.style.display = "block";
+      voiceMode.textContent = "🔇 投票中：請選擇投票或棄票，所有玩家麥克風已關閉";
     } else if (room.phase === "DAY" && !room.canSpeak) {
       voiceMode.style.display = "block";
       voiceMode.textContent = "🔇 你已出局，麥克風已關閉";
