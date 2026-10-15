@@ -85,11 +85,19 @@ async function main() {
     const seerResults = [];
     const seerErrors = [];
     const voteCounts = [];
+    const receivedChats = new Map(clients.map((socket) => [socket.id, []]));
+    const chatDenials = new Map(clients.map((socket) => [socket.id, []]));
     let witchKnowledge = null;
     clients.forEach((socket) => {
       socket.on("update", (room) => states.set(socket.id, room));
       socket.on("hunterCanShoot", () => shots.add(socket.id));
       socket.on("voteUpdate", ({ count }) => voteCounts.push(count));
+      socket.on("chatMessage", (message) => receivedChats.get(socket.id).push(message));
+      socket.on("actionError", (message) => {
+        if (message.includes("發言時間") || message.includes("不能傳送文字")) {
+          chatDenials.get(socket.id).push(message);
+        }
+      });
     });
 
     const roomCreated = new Promise((resolve) => host.once("roomCreated", resolve));
@@ -185,6 +193,19 @@ async function main() {
     guard.emit("guardAction", { roomId, targetId: villagers[1].id });
     await waitUntil(() => states.get(guard.id)?.guardActionDone, "守衛完成守護");
     await waitPhase("NIGHT_WOLF", "第一夜狼人階段");
+    const wolfChat = `wolf-private-${Date.now()}`;
+    wolf.emit("chatMessage", { roomId, text: wolfChat });
+    await waitUntil(() => receivedChats.get(wolf.id).some((message) => message.text === wolfChat), "狼人夜間文字訊息");
+    expect(
+      clients.filter((socket) => ["wolf", "wolfking", "whitewolfking"].includes(assignedRoles.get(socket.id)))
+        .every((socket) => receivedChats.get(socket.id).some((message) => message.text === wolfChat)),
+      "狼人夜間文字訊息沒有送到所有狼人",
+    );
+    expect(
+      clients.filter((socket) => !["wolf", "wolfking", "whitewolfking"].includes(assignedRoles.get(socket.id)))
+        .every((socket) => !receivedChats.get(socket.id).some((message) => message.text === wolfChat)),
+      "狼人夜間文字訊息洩漏給非狼人",
+    );
     wolf.emit("wolfKill", { roomId, targetId: villagers[0].id });
     await waitPhase("NIGHT_SEER", "第一夜預言家階段");
     seer.emit("seerAction", { roomId, targetId: wolf.id });
@@ -246,6 +267,23 @@ async function main() {
     expect(states.get(host.id)?.canSpeak === false, "首夜遺言時其他玩家仍可發言");
     villagers[0].emit("finishLastWords", { roomId });
     await waitUntil(() => room()?.phase === "DAY" && room()?.daySubPhase === "speech", "遺言後白天發言");
+    const currentSpeaker = clients.find((socket) => socket.id === room().currentSpeechId);
+    expect(currentSpeaker, "白天發言階段沒有目前發言者");
+    const dayChat = `day-speaker-${Date.now()}`;
+    currentSpeaker.emit("chatMessage", { roomId, text: dayChat });
+    await waitUntil(
+      () => clients.every((socket) => receivedChats.get(socket.id).some((message) => message.text === dayChat)),
+      "輪到發言者的文字訊息廣播",
+    );
+    const nonSpeaker = clients.find((socket) =>
+      socket.id !== currentSpeaker.id && room().players.some((player) => player.id === socket.id && player.alive)
+    );
+    const previousDenials = chatDenials.get(nonSpeaker.id).length;
+    nonSpeaker.emit("chatMessage", { roomId, text: "not-my-turn" });
+    await waitUntil(
+      () => chatDenials.get(nonSpeaker.id).length > previousDenials,
+      "非發言者文字訊息遭伺服器拒絕",
+    );
     console.log("PASS 狼王開槍與首夜狼刀死者遺言");
 
     while (room()?.daySubPhase === "speech" && room()?.currentSpeechId !== knight.id) {
@@ -278,6 +316,12 @@ async function main() {
     console.log("PASS 第二夜：預言家次夜重置、女巫救人與守衛防刀");
 
     await reachDayVote();
+    const previousVoteChatDenials = chatDenials.get(host.id).length;
+    host.emit("chatMessage", { roomId, text: "vote-chat-must-be-blocked" });
+    await waitUntil(
+      () => chatDenials.get(host.id).length > previousVoteChatDenials,
+      "投票期間文字訊息遭伺服器拒絕",
+    );
     expect(
       clients.every((socket) => states.get(socket.id)?.canSpeak === false),
       "白天投票期間有玩家仍能發言",

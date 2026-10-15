@@ -206,6 +206,13 @@
     #gameLog .log-time { color: #8291ad; margin-right: 5px; font-size: .85em; }
     #gameLog li.log-action { color: #7de0a9; }
     #gameLog li.log-error { color: #ff8f9d; }
+    #gameLog li.log-chat { color: #d9c9ff; }
+    #chatForm { display: flex; gap: 7px; padding: 8px; border-top: 1px solid #3b4561; }
+    #chatInput { flex: 1 1 auto; min-width: 0; width: auto; margin: 0; padding: 9px 10px; }
+    #chatSend { flex: 0 0 auto; width: auto; margin: 0; padding: 9px 13px; background: #533483; color: #fff; }
+    #chatHint { min-height: 18px; padding: 0 9px 8px; color: #aebbd1; font-size: .75em; text-align: center; }
+    #chatInput:disabled { opacity: .55; cursor: not-allowed; }
+    #chatSend:disabled { opacity: .45; cursor: not-allowed; }
     #roundActions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 8px auto 16px; }
     #roundActions > button { margin: 0; }
     #info.phase-transition { animation: phase-arrival .72s ease-out; }
@@ -338,6 +345,11 @@
     <section id="gameLogPanel" aria-label="遊戲訊息紀錄">
       <h3 id="gameLogTitle">📜 遊戲訊息</h3>
       <ol id="gameLog" aria-live="polite"></ol>
+      <form id="chatForm">
+        <input id="chatInput" type="text" maxlength="300" autocomplete="off" aria-label="輸入文字訊息" placeholder="等待輪到你發言…" disabled />
+        <button id="chatSend" type="submit" disabled>傳送</button>
+      </form>
+      <div id="chatHint">輪到你發言時才能傳送文字</div>
     </section>
   </div>
   <div id="roundActions"></div>
@@ -549,7 +561,7 @@
     const log = document.getElementById("gameLog");
     if (!log || !currentRoom || !message) return;
     const entry = document.createElement("li");
-    entry.className = kind === "error" ? "log-error" : kind === "action" ? "log-action" : "";
+    entry.className = kind === "error" ? "log-error" : kind === "action" ? "log-action" : kind === "chat" ? "log-chat" : "";
     const time = document.createElement("span");
     time.className = "log-time";
     time.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -563,6 +575,19 @@
     document.getElementById("systemMsg").innerText = (kind === "error" ? "⚠️ " : "📣 ") + message;
     addGameLog(message, kind);
   }
+
+  document.getElementById("chatForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const input = document.getElementById("chatInput");
+    const text = input.value.trim();
+    if (!text || input.disabled || !currentRoom) return;
+    socket.emit("chatMessage", { roomId: currentRoom, text });
+    input.value = "";
+  });
+
+  socket.on("chatMessage", ({ playerName, text }) => {
+    addGameLog(`💬 ${playerName}: ${text}`, "chat");
+  });
 
   function playUiSound(kind = "click") {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -986,6 +1011,24 @@
       addGameLog("遊戲開始", "action");
     }
     syncVoicePolicy(room);
+    const chatInput = document.getElementById("chatInput");
+    const chatSend = document.getElementById("chatSend");
+    const canSendChat = room.canSpeak === true;
+    chatInput.disabled = !canSendChat;
+    chatSend.disabled = !canSendChat;
+    if (room.phase === "DAY" && room.daySubPhase === "vote") {
+      chatInput.placeholder = "投票期間不能聊天";
+      document.getElementById("chatHint").textContent = "🔇 投票期間所有玩家都不能發送文字";
+    } else if (room.phase === "NIGHT_WOLF" && canSendChat) {
+      chatInput.placeholder = "只會傳送給狼人隊友…";
+      document.getElementById("chatHint").textContent = "🐺 狼人夜間訊息只有存活狼人看得到";
+    } else if (canSendChat) {
+      chatInput.placeholder = "輸入文字訊息…";
+      document.getElementById("chatHint").textContent = "🎙️ 你現在可以發言，文字訊息會顯示在遊戲紀錄";
+    } else {
+      chatInput.placeholder = "等待輪到你發言…";
+      document.getElementById("chatHint").textContent = "🔇 只有目前有發言權的玩家可以傳送文字";
+    }
 
     if (room.phase !== "DAY" || room.daySubPhase !== "vote") {
       if (voteRevealInterval != null) {

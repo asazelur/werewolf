@@ -42,6 +42,11 @@ function broadcastRoomUpdate(roomId) {
   });
 }
 
+function canPlayerSpeak(room, socketId) {
+  attachSpeechMeta(room);
+  return roomPayloadForSocket(room, socketId).canSpeak === true;
+}
+
 /** 清除夜晚倒數、進夜延遲、處決後進夜、遊戲結束倒數，避免上一局計時器汙染下一局 */
 function clearRoomTimers(roomId) {
   const room = rooms[roomId];
@@ -686,6 +691,31 @@ io.on("connection", (socket) => {
       return;
     }
     io.to(id).emit("peerSpeaking", { id: socket.id, active: isActive });
+  });
+
+  socket.on("chatMessage", ({ roomId, text }) => {
+    const id = roomId && String(roomId).toUpperCase();
+    const room = id && rooms[id];
+    const player = room && room.players.find((entry) => entry.id === socket.id);
+    const message = typeof text === "string" ? text.trim() : "";
+    if (!room || !player || !message) return;
+    if (message.length > 300) {
+      socket.emit("actionError", "文字訊息最多 300 個字。");
+      return;
+    }
+    if (!canPlayerSpeak(room, socket.id)) {
+      socket.emit("actionError", "目前不是你的發言時間，暫時不能傳送文字。");
+      return;
+    }
+
+    const payload = { playerId: player.id, playerName: player.name, text: message };
+    if (room.phase === "NIGHT_WOLF") {
+      room.players
+        .filter((entry) => entry.alive && ["wolf", "wolfking", "whitewolfking"].includes(entry.role))
+        .forEach((entry) => io.to(entry.id).emit("chatMessage", payload));
+      return;
+    }
+    io.to(id).emit("chatMessage", payload);
   });
 
   socket.on("joinRoom", ({ roomId, name, peerId }) => {
