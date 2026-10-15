@@ -25,7 +25,16 @@ function broadcastRoomUpdate(roomId) {
   if (!room) return;
   attachSpeechMeta(room);
   room.players.forEach((p) => {
-    io.to(p.id).emit("update", roomPayloadForSocket(room, p.id));
+    const payload = roomPayloadForSocket(room, p.id);
+    if (room.phase === "DAY" && room.daySubPhase === "vote") {
+      const dayVotes = votes[roomId] || {};
+      const pk = pkPlayers[roomId] || [];
+      payload.dayVoteSubmitted = Object.prototype.hasOwnProperty.call(dayVotes, p.id);
+      payload.dayVoteCount = Object.keys(dayVotes).length;
+      payload.dayVoteTotal = room.players.filter((player) => player.alive && !pk.includes(player.id)).length;
+      payload.canDayVote = !!(p.alive && !pk.includes(p.id));
+    }
+    io.to(p.id).emit("update", payload);
   });
 }
 
@@ -1193,12 +1202,19 @@ io.on("connection", (socket) => {
     const id = roomId.toUpperCase();
     const room = rooms[id];
     if (room && room.phase === "DAY" && room.daySubPhase === "vote") {
+      const voter = room.players.find((player) => player.id === socket.id);
+      const pk = pkPlayers[id] || [];
+      const target = targetId ? room.players.find((player) => player.id === targetId) : null;
+      if (!voter || !voter.alive || pk.includes(voter.id)) return;
+      if (targetId && (!target || !target.alive || (pk.length > 0 && !pk.includes(target.id)))) return;
       if (!votes[id]) votes[id] = {};
-      votes[id][socket.id] = targetId;
+      if (Object.prototype.hasOwnProperty.call(votes[id], socket.id)) return;
+      votes[id][socket.id] = targetId || null;
       const voteCount = Object.keys(votes[id]).length;
-      const totalEligible = room.players.filter(p => p.alive && !(pkPlayers[id] || []).includes(p.id)).length;
+      const totalEligible = room.players.filter(p => p.alive && !pk.includes(p.id)).length;
       io.to(id).emit("voteUpdate", { count: voteCount, total: totalEligible });
-      io.to(id).emit("systemMsg", `一名玩家已投票 (${voteCount}/${totalEligible})`);
+      io.to(id).emit("systemMsg", (targetId ? "一名玩家已投票" : "一名玩家已棄票") + " (" + voteCount + "/" + totalEligible + ")");
+      broadcastRoomUpdate(id);
     }
   });
 
@@ -1216,21 +1232,22 @@ io.on("connection", (socket) => {
       const target = room.players.find(p => p.id === tId);
       return {
         voterName: voter ? voter.name : "未知",
-        targetName: target ? target.name : "未知",
+        targetName: tId ? (target ? target.name : "未知") : "棄票",
         weight: voter && voter.id === room.sheriffId ? 1.5 : 1,
       };
     });
 
     io.to(id).emit("showFinalVotes", finalVoteDetail);
 
-    if (Object.keys(currentVotes).length === 0) {
-        io.to(id).emit("systemMsg", "無人投票，直接進入夜晚。");
+    const countedVotes = Object.entries(currentVotes).filter(([, targetId]) => !!targetId);
+    if (countedVotes.length === 0) {
+        io.to(id).emit("systemMsg", Object.keys(currentVotes).length ? "全體棄票，無人出局，直接進入夜晚。" : "無人投票，直接進入夜晚。");
         enterNight(id);
         return;
     }
 
     const tally = {};
-    Object.entries(currentVotes).forEach(([voterId, targetId]) => {
+    countedVotes.forEach(([voterId, targetId]) => {
       const voter = room.players.find((player) => player.id === voterId);
       const weight = voter && voter.id === room.sheriffId ? 1.5 : 1;
       tally[targetId] = (tally[targetId] || 0) + weight;

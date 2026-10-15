@@ -1280,6 +1280,8 @@
         if (
           room.phase === "DAY" &&
           room.daySubPhase === "vote" &&
+          room.canDayVote &&
+          !room.dayVoteSubmitted &&
           p.alive &&
           !inPK.includes(socket.id) &&
           (inPK.length === 0 || inPK.includes(p.id))
@@ -1423,6 +1425,13 @@
       btn.onclick = () => socket.emit("finishVote", currentRoom);
       document.getElementById("roundActions").appendChild(btn);
     }
+    if (room.phase === "DAY" && room.daySubPhase === "vote" && room.canDayVote && !room.dayVoteSubmitted) {
+      const btn = document.createElement("button");
+      btn.className = "btn-speech";
+      btn.innerText = "棄票";
+      btn.onclick = () => socket.emit("castVote", { roomId: currentRoom, targetId: null });
+      document.getElementById("roundActions").appendChild(btn);
+    }
     if (room.phase === "NIGHT_GUARD" && me && me.alive && me.role === "guard" && !room.guardActionDone) {
       const pass = document.createElement("button");
       pass.className = "btn-speech";
@@ -1438,7 +1447,9 @@
     detail.forEach(d => {
       const tag = document.createElement("span"); 
       tag.className = "vote-tag";
-      tag.innerText = `🗳️ ${d.voterName} ➔ ${d.targetName}${d.weight === 1.5 ? "（警長 1.5 票）" : ""}`;
+      tag.innerText = d.targetName === "棄票"
+        ? `⏭️ ${d.voterName} 棄票`
+        : `🗳️ ${d.voterName} ➔ ${d.targetName}${d.weight === 1.5 ? "（警長 1.5 票）" : ""}`;
       area.appendChild(tag);
     });
     if (detail.length) {
